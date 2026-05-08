@@ -114,4 +114,127 @@ router.post('/:id/deploy', async (req, res) => {
   }
 });
 
+// ── Domain Landers (multiple landers per domain) ─────────────────────────────
+
+router.get('/:id/landers', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT dl.*, l.name AS lander_name, l.folder AS lander_folder
+       FROM domain_landers dl
+       JOIN landers l ON dl.lander_id = l.id
+       WHERE dl.domain_id = $1
+       ORDER BY dl.created_at ASC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.post('/:id/landers', async (req, res) => {
+  const { lander_id, subdirectory = '' } = req.body;
+  if (!lander_id) return res.status(400).json({ message: 'lander_id is required.' });
+  try {
+    const { rows: [row] } = await pool.query(
+      `INSERT INTO domain_landers (domain_id, lander_id, subdirectory)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [req.params.id, lander_id, subdirectory.trim().replace(/^\/|\/$/g, '')]
+    );
+    res.status(201).json(row);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ message: 'A lander is already assigned to that path.' });
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.delete('/:id/landers/:dlId', async (req, res) => {
+  try {
+    await pool.query(
+      `DELETE FROM domain_landers WHERE id = $1 AND domain_id = $2`,
+      [req.params.dlId, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Deploy a specific domain-lander to cPanel
+router.post('/:id/landers/:dlId/deploy', async (req, res) => {
+  try {
+    const { rows: [dl] } = await pool.query(
+      `SELECT dl.*, l.folder AS lander_folder, d.doc_root, d.domain
+       FROM domain_landers dl
+       JOIN landers l ON dl.lander_id = l.id
+       JOIN domains d ON dl.domain_id = d.id
+       WHERE dl.id = $1 AND dl.domain_id = $2`,
+      [req.params.dlId, req.params.id]
+    );
+    if (!dl) return res.status(404).json({ message: 'Not found.' });
+
+    const targetRoot = dl.subdirectory
+      ? `${dl.doc_root}/${dl.subdirectory}`
+      : dl.doc_root;
+
+    await uploadLander(path.join(LANDERS_DIR, dl.lander_folder), targetRoot);
+    res.json({ ok: true, domain: dl.domain, path: dl.subdirectory || '/' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Deploy + publish to RedTrack as a landing page
+router.post('/:id/landers/:dlId/publish', async (req, res) => {
+  const axios = require('axios');
+  try {
+    const { rows: [dl] } = await pool.query(
+      `SELECT dl.*, l.folder AS lander_folder, l.name AS lander_name,
+              d.doc_root, d.domain
+       FROM domain_landers dl
+       JOIN landers l ON dl.lander_id = l.id
+       JOIN domains d ON dl.domain_id = d.id
+       WHERE dl.id = $1 AND dl.domain_id = $2`,
+      [req.params.dlId, req.params.id]
+    );
+    if (!dl) return res.status(404).json({ message: 'Not found.' });
+
+    const targetRoot = dl.subdirectory ? `${dl.doc_root}/${dl.subdirectory}` : dl.doc_root;
+    await uploadLander(path.join(LANDERS_DIR, dl.lander_folder), targetRoot);
+
+    const url = dl.subdirectory
+      ? `https://${dl.domain}/${dl.subdirectory}`
+      : `https://${dl.domain}`;
+
+    const title = req.body.title || `${dl.lander_name} - ${dl.domain}${dl.subdirectory ? '/' + dl.subdirectory : ''}`;
+
+    const apiKey = process.env.REDTRACK_API_KEY;
+    if (!apiKey) return res.status(500).json({ message: 'REDTRACK_API_KEY not configured.' });
+
+    const { data: rtLander } = await axios.post(
+      'https://api.redtrack.io/landings',
+      { title, url, type: 'l' },
+      { params: { api_key: apiKey }, timeout: 10000 }
+    );
+
+    await pool.query(
+      `UPDATE domain_landers SET redtrack_lander_id = $1 WHERE id = $2`,
+      [rtLander.id, dl.id]
+    );
+
+    // Also update domains.redtrack_lander_id if this is the root path (used for rotation)
+    if (!dl.subdirectory) {
+      await pool.query(
+        `UPDATE domains SET redtrack_lander_id = $1 WHERE id = $2`,
+        [rtLander.id, req.params.id]
+      );
+    }
+
+    res.json({ ok: true, redtrack_lander: rtLander });
+  } catch (err) {
+    const msg = err.response?.data?.error || err.message;
+    res.status(500).json({ message: msg });
+  }
+});
+
 module.exports = router;

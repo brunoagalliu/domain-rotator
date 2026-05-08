@@ -60,6 +60,22 @@ router.get('/streams/:id', async (req, res) => {
   }
 });
 
+router.post('/landings', async (req, res) => {
+  const key = process.env.REDTRACK_API_KEY;
+  if (!key) return res.status(500).json({ message: 'REDTRACK_API_KEY not configured' });
+  try {
+    const { data } = await axios.post(
+      'https://api.redtrack.io/landings',
+      req.body,
+      { params: { api_key: key }, timeout: 10000 }
+    );
+    res.status(201).json(data);
+  } catch (err) {
+    const msg = err.response?.data?.error || err.message;
+    res.status(err.response?.status || 500).json({ message: msg });
+  }
+});
+
 router.post('/streams', async (req, res) => {
   const key = process.env.REDTRACK_API_KEY;
   if (!key) return res.status(500).json({ message: 'REDTRACK_API_KEY not configured' });

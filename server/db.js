@@ -38,6 +38,16 @@ async function init() {
 
     CREATE INDEX IF NOT EXISTS idx_domains_status ON domains(status);
 
+    CREATE TABLE IF NOT EXISTS domain_landers (
+      id                 SERIAL PRIMARY KEY,
+      domain_id          INTEGER NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+      lander_id          INTEGER NOT NULL REFERENCES landers(id) ON DELETE CASCADE,
+      subdirectory       TEXT NOT NULL DEFAULT '',
+      redtrack_lander_id TEXT,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (domain_id, subdirectory)
+    );
+
     CREATE TABLE IF NOT EXISTS funnel_offers (
       id                SERIAL PRIMARY KEY,
       funnel_id         INTEGER NOT NULL REFERENCES funnels(id) ON DELETE CASCADE,
