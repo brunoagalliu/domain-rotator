@@ -1,6 +1,106 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+
+function SearchSelect({ value, options, placeholder, onChange }) {
+  const [open, setOpen]     = useState(false);
+  const [query, setQuery]   = useState('');
+  const ref                 = useRef(null);
+  const inputRef            = useRef(null);
+
+  const selected  = options.find(o => o.id === value);
+  const filtered  = options.filter(o =>
+    (o.title || '').toLowerCase().includes(query.toLowerCase())
+  );
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  function handleOpen() {
+    setOpen(true);
+    setQuery('');
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function handleSelect(opt) {
+    onChange(opt);
+    setOpen(false);
+    setQuery('');
+  }
+
+  function handleClear(e) {
+    e.stopPropagation();
+    onChange(null);
+  }
+
+  return (
+    <div ref={ref} className="relative flex-1 min-w-0">
+      {/* Trigger */}
+      <div
+        onClick={handleOpen}
+        className={`flex items-center gap-2 border rounded-md px-3 py-2 text-sm cursor-pointer bg-white transition-colors ${
+          open ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-300 hover:border-gray-400'
+        }`}
+      >
+        <span className={`flex-1 truncate ${selected ? 'text-gray-800' : 'text-gray-400'}`}>
+          {selected ? selected.title : placeholder}
+        </span>
+        {selected && (
+          <button onClick={handleClear} className="text-gray-300 hover:text-gray-500 shrink-0 leading-none">
+            ×
+          </button>
+        )}
+        <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+          <div className="p-2 border-b border-gray-100">
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search..."
+              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            <div
+              onClick={() => handleSelect(null)}
+              className="px-3 py-2 text-sm text-gray-400 hover:bg-gray-50 cursor-pointer"
+            >
+              None
+            </div>
+            {filtered.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-gray-400 italic">No results</p>
+            ) : filtered.map(opt => (
+              <div
+                key={opt.id}
+                onClick={() => handleSelect(opt)}
+                className={`px-3 py-2 text-sm cursor-pointer truncate transition-colors ${
+                  opt.id === value
+                    ? 'bg-indigo-50 text-indigo-700 font-medium'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {opt.title}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const FUNNEL_TYPES = [
   { value: 'single_landing', label: 'Single landing' },
@@ -12,17 +112,12 @@ function ItemRow({ index, item, rtOptions, onChange, onRemove }) {
     <div className="border border-gray-200 rounded-lg p-3 space-y-2">
       <div className="flex items-center gap-3">
         <span className="text-sm font-semibold text-gray-500 w-5 shrink-0">{index + 1}</span>
-        <select
+        <SearchSelect
           value={item.id}
-          onChange={e => {
-            const opt = rtOptions.find(o => o.id === e.target.value);
-            onChange({ ...item, id: e.target.value, name: opt?.title || e.target.value });
-          }}
-          className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          <option value="">None</option>
-          {rtOptions.map(o => <option key={o.id} value={o.id}>{o.title}</option>)}
-        </select>
+          options={rtOptions}
+          placeholder="Select..."
+          onChange={opt => onChange({ ...item, id: opt?.id || '', name: opt?.title || '' })}
+        />
         <div className="flex items-center gap-1 shrink-0">
           <label className="text-xs text-gray-400">Weight</label>
           <input
