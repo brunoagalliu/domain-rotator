@@ -3,8 +3,6 @@ const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const archiver = require('archiver');
-const os = require('os');
 
 function getClient() {
   return axios.create({
@@ -15,68 +13,56 @@ function getClient() {
   });
 }
 
-function createZip(sourceFolder) {
-  return new Promise((resolve, reject) => {
-    const tmpPath = path.join(os.tmpdir(), `lander-${Date.now()}.zip`);
-    const output = fs.createWriteStream(tmpPath);
-    const archive = archiver('zip', { zlib: { level: 6 } });
-
-    output.on('close', () => resolve(tmpPath));
-    archive.on('error', reject);
-
-    archive.pipe(output);
-    archive.directory(sourceFolder, false); // files at zip root, no wrapper folder
-    archive.finalize();
-  });
+// Walk a directory and return all file paths with their relative paths
+function walkDir(dir, base = dir) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkDir(full, base));
+    } else {
+      files.push({ full, relative: path.relative(base, full) });
+    }
+  }
+  return files;
 }
 
+// Upload all files in a lander folder directly to cPanel, preserving directory structure
 async function uploadLander(landerFolder, docRoot) {
   const client = getClient();
-  const zipPath = await createZip(landerFolder);
+  const files = walkDir(landerFolder);
 
-  try {
-    // 1. Upload zip to the domain's doc root
+  if (files.length === 0) throw new Error('Lander folder is empty.');
+
+  // Group files by their subdirectory so we can batch uploads per directory
+  const byDir = {};
+  for (const f of files) {
+    const subDir = path.dirname(f.relative);
+    const targetDir = subDir === '.' ? docRoot : `${docRoot}/${subDir}`;
+    if (!byDir[targetDir]) byDir[targetDir] = [];
+    byDir[targetDir].push(f);
+  }
+
+  for (const [targetDir, dirFiles] of Object.entries(byDir)) {
     const form = new FormData();
-    form.append('dir', docRoot);
-    form.append('file-1', fs.createReadStream(zipPath), {
-      filename: 'lander.zip',
-      contentType: 'application/zip',
+    form.append('dir', targetDir);
+    dirFiles.forEach((f, i) => {
+      form.append(`file-${i + 1}`, fs.createReadStream(f.full), {
+        filename: path.basename(f.relative),
+      });
     });
 
-    const uploadRes = await client.post('/Fileman/upload_files', form, {
+    const res = await client.post('/Fileman/upload_files', form, {
       headers: form.getHeaders(),
       maxBodyLength: Infinity,
       maxContentLength: Infinity,
     });
 
-    if (uploadRes.data.status !== 1) {
-      const errors = (uploadRes.data.errors || []).join(', ') || JSON.stringify(uploadRes.data);
-      throw new Error(`cPanel upload failed: ${errors}`);
+    if (res.data.status !== 1) {
+      const errors = (res.data.errors || []).join(', ') || JSON.stringify(res.data);
+      throw new Error(`cPanel upload failed for ${targetDir}: ${errors}`);
     }
-
-    // 2. Extract zip in place
-    const extractRes = await client.post(
-      '/Fileman/extract',
-      new URLSearchParams({ destdir: docRoot, file: `${docRoot}/lander.zip` }).toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
-
-    if (extractRes.data.status !== 1) {
-      const errors = (extractRes.data.errors || []).join(', ') || JSON.stringify(extractRes.data);
-      throw new Error(`cPanel extract failed: ${errors}`);
-    }
-
-    // 3. Delete the zip from the server
-    await client.post(
-      '/Fileman/delete',
-      new URLSearchParams({
-        files: JSON.stringify([`${docRoot}/lander.zip`]),
-        doublecheck: '1',
-      }).toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
-  } finally {
-    fs.unlink(zipPath, () => {});
   }
 }
 
