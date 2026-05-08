@@ -1,28 +1,39 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 
 function SearchSelect({ value, options, placeholder, onChange }) {
-  const [open, setOpen]     = useState(false);
-  const [query, setQuery]   = useState('');
-  const ref                 = useRef(null);
-  const inputRef            = useRef(null);
+  const [open, setOpen]   = useState(false);
+  const [query, setQuery] = useState('');
+  const [rect, setRect]   = useState(null);
+  const triggerRef        = useRef(null);
+  const dropdownRef       = useRef(null);
+  const inputRef          = useRef(null);
 
-  const selected  = options.find(o => o.id === value);
-  const filtered  = options.filter(o =>
+  const selected = options.find(o => o.id === value);
+  const filtered = options.filter(o =>
     (o.title || '').toLowerCase().includes(query.toLowerCase())
   );
 
   useEffect(() => {
+    if (!open) return;
     function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      if (
+        triggerRef.current?.contains(e.target) ||
+        dropdownRef.current?.contains(e.target)
+      ) return;
+      setOpen(false);
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
+  }, [open]);
 
   function handleOpen() {
-    setOpen(true);
+    if (triggerRef.current) {
+      setRect(triggerRef.current.getBoundingClientRect());
+    }
+    setOpen(o => !o);
     setQuery('');
     setTimeout(() => inputRef.current?.focus(), 0);
   }
@@ -39,7 +50,7 @@ function SearchSelect({ value, options, placeholder, onChange }) {
   }
 
   return (
-    <div ref={ref} className="relative flex-1 min-w-0">
+    <div ref={triggerRef} className="flex-1 min-w-0">
       {/* Trigger */}
       <div
         onClick={handleOpen}
@@ -51,7 +62,7 @@ function SearchSelect({ value, options, placeholder, onChange }) {
           {selected ? selected.title : placeholder}
         </span>
         {selected && (
-          <button onClick={handleClear} className="text-gray-300 hover:text-gray-500 shrink-0 leading-none">
+          <button onClick={handleClear} className="text-gray-300 hover:text-gray-500 shrink-0 leading-none text-base">
             ×
           </button>
         )}
@@ -61,9 +72,19 @@ function SearchSelect({ value, options, placeholder, onChange }) {
         </svg>
       </div>
 
-      {/* Dropdown */}
-      {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+      {/* Dropdown — rendered in portal to escape overflow:hidden/auto parents */}
+      {open && rect && createPortal(
+        <div
+          ref={dropdownRef}
+          style={{
+            position: 'fixed',
+            top:   rect.bottom + 4,
+            left:  rect.left,
+            width: rect.width,
+            zIndex: 9999,
+          }}
+          className="bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden"
+        >
           <div className="p-2 border-b border-gray-100">
             <input
               ref={inputRef}
@@ -96,7 +117,8 @@ function SearchSelect({ value, options, placeholder, onChange }) {
               </div>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -105,6 +127,7 @@ function SearchSelect({ value, options, placeholder, onChange }) {
 const FUNNEL_TYPES = [
   { value: 'single_landing', label: 'Single landing' },
   { value: 'multi_landing',  label: 'Multi landing' },
+  { value: 'offers_only',    label: 'Offers only' },
 ];
 
 function ItemRow({ index, item, rtOptions, onChange, onRemove }) {
@@ -242,9 +265,9 @@ function CreateFunnelModal({ onSave, onClose }) {
           {loadingRt ? (
             <div className="px-6 py-8 text-sm text-gray-400 text-center">Loading RedTrack data...</div>
           ) : (
-            <div className="grid grid-cols-2 divide-x divide-gray-200">
-              {/* Landings column */}
-              <div className="px-6 py-5 space-y-3">
+            <div className={`grid divide-x divide-gray-200 ${type === 'offers_only' ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              {/* Landings column — hidden for offers_only */}
+              {type !== 'offers_only' && <div className="px-6 py-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-semibold text-gray-800">Landings</h3>
                   <button
@@ -272,7 +295,7 @@ function CreateFunnelModal({ onSave, onClose }) {
                     <p className="text-xs text-gray-400 italic text-center py-4">No landings added yet</p>
                   )}
                 </div>
-              </div>
+              </div>}
 
               {/* Offers column */}
               <div className="px-6 py-5 space-y-3">
