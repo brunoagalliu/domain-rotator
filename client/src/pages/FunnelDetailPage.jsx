@@ -134,10 +134,10 @@ function AddLanderForm({ domainId, localLanders, onSave, onCancel }) {
 }
 
 // ── Domain row with nested landers ────────────────────────────────────────────
-function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh, rotating }) {
-  const [landers, setLanders]         = useState([]);
+function DomainRow({ domain, localLanders, onDelete, onRefresh }) {
+  const [landers, setLanders]             = useState([]);
   const [showAddLander, setShowAddLander] = useState(false);
-  const [actionState, setActionState] = useState({}); // { [dlId]: 'deploying'|'publishing' }
+  const [actionState, setActionState]     = useState({});
 
   const loadLanders = useCallback(async () => {
     const rows = await api.get(`/domains/${domain.id}/landers`).catch(() => []);
@@ -159,8 +159,9 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh, rotati
     setActionState(s => ({ ...s, [dl.id]: 'publishing' }));
     try {
       const res = await api.post(`/domains/${domain.id}/landers/${dl.id}/publish`);
-      alert(`Published to RedTrack: ${res.redtrack_lander.title}\n${res.redtrack_lander.url}`);
+      alert(`Published to RedTrack!\nID: ${res.redtrack_lander.id}\nURL: ${res.redtrack_lander.url}`);
       loadLanders();
+      onRefresh();
     } catch (err) { alert(`Publish failed: ${err.message}`); }
     finally { setActionState(s => ({ ...s, [dl.id]: null })); }
   }
@@ -171,45 +172,36 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh, rotati
     loadLanders();
   }
 
-  const state = actionState;
-
   return (
     <div className="border border-gray-100 rounded-lg overflow-hidden">
-      {/* Domain header row */}
       <div className="flex items-center gap-3 px-3 py-2.5 bg-white">
         <span className="font-mono text-xs text-gray-800 flex-1 min-w-0 truncate">{domain.domain}</span>
         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_COLORS[domain.role]}`}>{domain.role}</span>
         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[domain.status]}`}>{domain.status}</span>
-        <div className="flex gap-1.5 shrink-0">
-          {domain.status === 'active' && (
-            <button onClick={() => onRotate(domain.domain)} disabled={rotating}
-              className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-50 transition-colors">
-              Rotate Now
-            </button>
-          )}
-          <button onClick={() => onDelete(domain.id, domain.domain)}
-            className="text-xs px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors">
-            Remove
-          </button>
-        </div>
+        <button onClick={() => onDelete(domain.id, domain.domain)}
+          className="text-xs px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors">
+          Remove
+        </button>
       </div>
 
-      {/* Landers sub-section */}
       <div className="bg-gray-50 border-t border-gray-100 px-3 py-2 space-y-1.5">
         {landers.map(dl => (
           <div key={dl.id} className="flex items-center gap-2 text-xs">
             <span className="flex-1 text-gray-700 truncate">
               <span className="font-medium">{dl.lander_name}</span>
-              {dl.subdirectory && <span className="text-gray-400 font-mono ml-1">/{dl.subdirectory}</span>}
-              {dl.redtrack_lander_id && <span className="ml-2 text-green-600 font-medium">✓ RT</span>}
+              {dl.subdirectory
+                ? <span className="text-gray-400 font-mono ml-1">/{dl.subdirectory}</span>
+                : <span className="text-gray-400 font-mono ml-1">/</span>
+              }
+              {dl.redtrack_lander_id && <span className="ml-2 text-green-600 font-medium">✓ RT#{dl.redtrack_lander_id}</span>}
             </span>
-            <button onClick={() => handleDeploy(dl)} disabled={!!state[dl.id]}
+            <button onClick={() => handleDeploy(dl)} disabled={!!actionState[dl.id]}
               className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors">
-              {state[dl.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
+              {actionState[dl.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
             </button>
-            <button onClick={() => handlePublish(dl)} disabled={!!state[dl.id]}
+            <button onClick={() => handlePublish(dl)} disabled={!!actionState[dl.id]}
               className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 disabled:opacity-50 transition-colors">
-              {state[dl.id] === 'publishing' ? 'Publishing...' : 'Publish to RT'}
+              {actionState[dl.id] === 'publishing' ? 'Publishing...' : 'Publish to RT'}
             </button>
             <button onClick={() => handleRemoveLander(dl)}
               className="px-2 py-0.5 bg-red-50 text-red-500 rounded hover:bg-red-100 transition-colors">✕</button>
@@ -234,17 +226,110 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh, rotati
   );
 }
 
+// ── Landings card (mirrors RT's Landings section) ─────────────────────────────
+function LandingsCard({ landings, domains, rotating, onRotate }) {
+  // Map redtrack_lander_id → domain for quick lookup
+  const rtToDomain = {};
+  for (const d of domains) {
+    if (d.redtrack_lander_id) rtToDomain[String(d.redtrack_lander_id)] = d;
+  }
+
+  if (landings.length === 0) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <h2 className="text-sm font-semibold text-gray-700 mb-3">Landings</h2>
+        <p className="text-xs text-gray-400 italic">No landings in this funnel template yet.</p>
+        <p className="text-xs text-gray-400 mt-1">Publish a domain lander to RedTrack to link it here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-5">
+      <h2 className="text-sm font-semibold text-gray-700 mb-3">Landings</h2>
+      <div className="space-y-2">
+        {landings.map((l, i) => {
+          const linked = rtToDomain[String(l.id)];
+          const isActive = linked?.status === 'active';
+          return (
+            <div key={l.id}
+              className={`flex items-start gap-3 p-3 rounded-lg border ${isActive ? 'border-green-200 bg-green-50' : 'border-gray-100 bg-gray-50'}`}>
+              <span className="text-xs font-bold text-gray-400 pt-0.5 w-4 shrink-0">{i + 1}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 truncate">{l.name || `Landing ${l.id}`}</p>
+                {linked ? (
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[linked.status]}`}>
+                      {linked.status}
+                    </span>
+                    <span className="text-xs font-mono text-gray-500">{linked.domain}</span>
+                    {isActive && (
+                      <button
+                        onClick={() => onRotate(linked.domain)}
+                        disabled={rotating}
+                        className="text-xs px-2 py-0.5 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50 transition-colors font-medium"
+                      >
+                        {rotating ? 'Rotating...' : 'Rotate Now'}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 mt-1 italic">Not linked to a domain</p>
+                )}
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-xs text-gray-400">weight</p>
+                <p className="text-sm font-semibold text-gray-700">{l.weight ?? 100}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Offers card ───────────────────────────────────────────────────────────────
+function OffersCard({ offers }) {
+  if (offers.length === 0) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <h2 className="text-sm font-semibold text-gray-700 mb-3">Offers</h2>
+        <p className="text-xs text-gray-400 italic">No offers in this funnel template.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-5">
+      <h2 className="text-sm font-semibold text-gray-700 mb-3">Offers</h2>
+      <div className="space-y-2">
+        {offers.map((o, i) => (
+          <div key={`${o.id}-${i}`} className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50">
+            <span className="text-xs font-bold text-gray-400 w-4 shrink-0">{i + 1}</span>
+            <p className="text-sm font-medium text-gray-800 flex-1 truncate">{o.name || `Offer ${o.id}`}</p>
+            <div className="text-right shrink-0">
+              <p className="text-xs text-gray-400">weight</p>
+              <p className="text-sm font-semibold text-gray-700">{o.weight ?? 100}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function FunnelDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [funnel, setFunnel]   = useState(null);
-  const [stream, setStream]   = useState(null);
+  const [funnel, setFunnel]             = useState(null);
+  const [stream, setStream]             = useState(null);
   const [localLanders, setLocalLanders] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]           = useState(true);
   const [showAddDomain, setShowAddDomain] = useState(false);
-  const [rotating, setRotating] = useState(false);
+  const [rotating, setRotating]         = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -272,11 +357,11 @@ export default function FunnelDetailPage() {
   }
 
   async function handleRotateNow(domain) {
-    if (!confirm(`Manually rotate away from "${domain}"?`)) return;
+    if (!confirm(`Rotate away from "${domain}"?\n\nThis will ban the current domain and activate the next standby domain, updating the RedTrack funnel template.`)) return;
     setRotating(true);
     try {
       const res = await api.post('/rotate/trigger', { domain, reason: 'manual' });
-      alert(`Rotated: ${res.fromDomain} → ${res.toDomain}`);
+      alert(`Rotated successfully!\n${res.fromDomain} → ${res.toDomain}`);
       load();
     } catch (err) {
       alert(`Rotation failed: ${err.message}`);
@@ -291,8 +376,12 @@ export default function FunnelDetailPage() {
   const streamLandings = stream?.landings || [];
   const streamOffers   = stream?.offers   || [];
 
+  const activeDomains  = funnel.domains.filter(d => d.status === 'active').length;
+  const standbyDomains = funnel.domains.filter(d => d.status === 'standby').length;
+  const bannedDomains  = funnel.domains.filter(d => d.status === 'banned').length;
+
   return (
-    <div className="p-6 max-w-4xl space-y-6">
+    <div className="p-6 max-w-5xl space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <button onClick={() => navigate('/funnels')} className="text-gray-400 hover:text-gray-600 transition-colors">
@@ -300,40 +389,44 @@ export default function FunnelDetailPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold text-gray-900">{funnel.name}</h1>
-          {stream && <p className="text-xs text-gray-400 mt-0.5">RedTrack Funnel Template</p>}
+          <div className="flex items-center gap-3 mt-0.5">
+            {funnel.redtrack_stream_id && (
+              <span className="text-xs text-gray-400">RT stream: {funnel.redtrack_stream_id}</span>
+            )}
+            <div className="flex gap-3 text-xs">
+              {activeDomains > 0  && <span className="text-green-600 font-medium">{activeDomains} active</span>}
+              {standbyDomains > 0 && <span className="text-yellow-600 font-medium">{standbyDomains} standby</span>}
+              {bannedDomains > 0  && <span className="text-red-500 font-medium">{bannedDomains} banned</span>}
+            </div>
+          </div>
         </div>
+        {funnel.redtrack_stream_id && (
+          <button onClick={load} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded hover:bg-gray-50 transition-colors">
+            Refresh from RT
+          </button>
+        )}
       </div>
 
-      {/* RedTrack Landers (read-only) */}
-      {streamLandings.length > 0 && (
-        <section className="bg-white rounded-lg border border-gray-200 p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Landers in Template</h2>
-          <div className="space-y-2">
-            {streamLandings.map(l => (
-              <div key={l.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-md">
-                <span className="text-sm text-gray-800">{l.name}</span>
-                <span className="text-xs text-gray-400">weight {l.weight}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+      {/* Landings + Offers side by side (like RT screenshot) */}
+      {funnel.redtrack_stream_id && (
+        <div className="grid grid-cols-2 gap-4">
+          <LandingsCard
+            landings={streamLandings}
+            domains={funnel.domains}
+            rotating={rotating}
+            onRotate={handleRotateNow}
+          />
+          <OffersCard offers={streamOffers} />
+        </div>
       )}
 
-      {/* RedTrack Offers (read-only) */}
-      {streamOffers.length > 0 && (
-        <section className="bg-white rounded-lg border border-gray-200 p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Offers in Template</h2>
-          <div className="space-y-2">
-            {streamOffers.map((o, i) => (
-              <div key={`${o.id}-${i}`} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-md">
-                <span className="text-sm text-gray-800">{o.name}</span>
-                <span className="text-xs text-gray-400">weight {o.weight}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+      {/* No stream linked */}
+      {!funnel.redtrack_stream_id && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
+          This funnel is not linked to a RedTrack funnel template. Manage it from the Funnels list page.
+        </div>
       )}
 
       {/* Domains */}
@@ -341,7 +434,9 @@ export default function FunnelDetailPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-sm font-semibold text-gray-700">Domains</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Each domain can have multiple landers at different paths.</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Publish a lander to RedTrack to link it to the funnel template above.
+            </p>
           </div>
           {!showAddDomain && (
             <button onClick={() => setShowAddDomain(true)}
@@ -352,7 +447,7 @@ export default function FunnelDetailPage() {
         </div>
 
         {funnel.domains.length === 0 && !showAddDomain ? (
-          <p className="text-sm text-gray-400 text-center py-4">No domains yet.</p>
+          <p className="text-sm text-gray-400 text-center py-4">No domains yet. Add one to get started.</p>
         ) : (
           <div className="space-y-2">
             {funnel.domains.map(d => (
@@ -360,10 +455,8 @@ export default function FunnelDetailPage() {
                 key={d.id}
                 domain={d}
                 localLanders={localLanders}
-                onRotate={handleRotateNow}
                 onDelete={deleteDomain}
                 onRefresh={load}
-                rotating={rotating}
               />
             ))}
           </div>
