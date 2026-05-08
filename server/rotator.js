@@ -16,7 +16,7 @@ async function updateRedTrackStream(streamId, oldLanderId, newLanderId) {
       { params: { api_key: apiKey }, timeout: 10000 }
     );
     const items = list.items || list || [];
-    const stream = items.find(s => String(s.id) === String(streamId));
+    const stream = items.find(s => String(s.id || s._id) === String(streamId));
     if (!stream) {
       console.error(`[rotator] Stream ${streamId} not found in RT list`);
       return;
