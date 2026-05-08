@@ -10,20 +10,30 @@ async function updateRedTrackStream(streamId, oldLanderId, newLanderId) {
   if (!apiKey || !streamId || !oldLanderId || !newLanderId) return;
 
   try {
-    const { data: stream } = await axios.get(
-      `https://api.redtrack.io/streams/${streamId}`,
+    // RT has no GET /streams/:id — fetch list and find the stream
+    const { data: list } = await axios.get(
+      'https://api.redtrack.io/streams',
       { params: { api_key: apiKey }, timeout: 10000 }
     );
+    const items = list.items || list || [];
+    const stream = items.find(s => String(s.id) === String(streamId));
+    if (!stream) {
+      console.error(`[rotator] Stream ${streamId} not found in RT list`);
+      return;
+    }
 
     let changed = false;
     for (const landing of stream.landings || []) {
-      if (landing.id === oldLanderId) {
+      if (String(landing.id) === String(oldLanderId)) {
         landing.id = newLanderId;
         changed = true;
       }
     }
 
-    if (!changed) return;
+    if (!changed) {
+      console.warn(`[rotator] Landing ${oldLanderId} not found in stream ${streamId} — no RT update`);
+      return;
+    }
 
     await axios.put(
       `https://api.redtrack.io/streams/${streamId}`,
@@ -32,7 +42,7 @@ async function updateRedTrackStream(streamId, oldLanderId, newLanderId) {
     );
     console.log(`[rotator] RedTrack stream ${streamId} updated: ${oldLanderId} → ${newLanderId}`);
   } catch (err) {
-    console.error('[rotator] RedTrack update failed:', err.message);
+    console.error('[rotator] RedTrack update failed:', err.response?.data || err.message);
   }
 }
 

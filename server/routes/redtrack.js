@@ -53,11 +53,15 @@ router.get('/streams', async (req, res) => {
 
 router.get('/streams/:id', async (req, res) => {
   try {
-    const data = await rt(`/streams/${req.params.id}`);
-    console.log('[redtrack] stream response keys:', Object.keys(data || {}));
-    console.log('[redtrack] landings:', JSON.stringify(data?.landings?.slice(0,2)));
-    console.log('[redtrack] offers:', JSON.stringify(data?.offers?.slice(0,2)));
-    res.json(data);
+    // RT API has no single-stream GET — fetch the list and find by id
+    const data = await rt('/streams');
+    const items = data.items || data || [];
+    const stream = items.find(s => String(s.id) === req.params.id);
+    if (!stream) return res.status(404).json({ message: `Stream ${req.params.id} not found in list` });
+    console.log('[redtrack] stream keys:', Object.keys(stream));
+    console.log('[redtrack] landings:', JSON.stringify(stream?.landings?.slice(0, 2)));
+    console.log('[redtrack] offers:', JSON.stringify(stream?.offers?.slice(0, 2)));
+    res.json(stream);
   } catch (err) {
     console.error('[redtrack] stream fetch error:', err.response?.data || err.message);
     res.status(err.response?.status || 500).json({ message: err.response?.data?.error || err.message });
