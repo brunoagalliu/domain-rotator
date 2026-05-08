@@ -1,5 +1,9 @@
 const express = require('express');
+const path = require('path');
 const { pool } = require('../db');
+const { uploadLander } = require('../cpanel');
+
+const LANDERS_DIR = path.join(__dirname, '../../landers');
 
 const router = express.Router();
 
@@ -83,6 +87,28 @@ router.delete('/:id', async (req, res) => {
   try {
     await pool.query(`DELETE FROM domains WHERE id = $1`, [req.params.id]);
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.post('/:id/deploy', async (req, res) => {
+  try {
+    const { rows: [domain] } = await pool.query(
+      `SELECT d.*, l.folder AS lander_folder
+       FROM domains d
+       LEFT JOIN landers l ON d.lander_id = l.id
+       WHERE d.id = $1`,
+      [req.params.id]
+    );
+
+    if (!domain) return res.status(404).json({ message: 'Domain not found.' });
+    if (!domain.lander_folder) return res.status(400).json({ message: 'No lander assigned to this domain.' });
+
+    const landerPath = path.join(LANDERS_DIR, domain.lander_folder);
+    await uploadLander(landerPath, domain.doc_root);
+
+    res.json({ ok: true, domain: domain.domain });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

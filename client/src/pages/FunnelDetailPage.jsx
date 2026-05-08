@@ -134,6 +134,7 @@ export default function FunnelDetailPage() {
   const [loading, setLoading] = useState(true);
   const [showAddDomain, setShowAddDomain] = useState(false);
   const [rotating, setRotating]           = useState(false);
+  const [deploying, setDeploying]         = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -154,6 +155,19 @@ export default function FunnelDetailPage() {
     if (!confirm(`Remove "${domain}" from this funnel?`)) return;
     await api.delete(`/domains/${domainId}`);
     load();
+  }
+
+  async function handleDeploy(id, domain) {
+    if (!confirm(`Deploy lander to "${domain}" via cPanel?`)) return;
+    setDeploying(id);
+    try {
+      await api.post(`/domains/${id}/deploy`);
+      alert(`Lander deployed to ${domain} successfully.`);
+    } catch (err) {
+      alert(`Deploy failed: ${err.message}`);
+    } finally {
+      setDeploying(null);
+    }
   }
 
   async function handleRotateNow(domain) {
@@ -275,6 +289,13 @@ export default function FunnelDetailPage() {
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex gap-2">
+                        <button
+                          onClick={() => handleDeploy(d.id, d.domain)}
+                          disabled={deploying === d.id}
+                          className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors"
+                        >
+                          {deploying === d.id ? 'Deploying...' : 'Deploy'}
+                        </button>
                         {d.status === 'active' && (
                           <button
                             onClick={() => handleRotateNow(d.domain)}

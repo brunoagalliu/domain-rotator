@@ -167,7 +167,8 @@ export default function DomainsPage() {
   const [filter,   setFilter]   = useState('all');
   const [modal,    setModal]    = useState(null); // null | 'add' | domain-object
   const [loading,  setLoading]  = useState(true);
-  const [rotating, setRotating] = useState(false);
+  const [rotating, setRotating]   = useState(false);
+  const [deploying, setDeploying] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -193,6 +194,19 @@ export default function DomainsPage() {
   async function handleRestore(id) {
     await api.patch(`/domains/${id}`, { status: 'standby', banned_at: null });
     load();
+  }
+
+  async function handleDeploy(id, domain) {
+    if (!confirm(`Deploy lander to "${domain}" via cPanel?`)) return;
+    setDeploying(id);
+    try {
+      await api.post(`/domains/${id}/deploy`);
+      alert(`Lander deployed to ${domain} successfully.`);
+    } catch (err) {
+      alert(`Deploy failed: ${err.message}`);
+    } finally {
+      setDeploying(null);
+    }
   }
 
   async function handleRotateNow(domain) {
@@ -277,6 +291,15 @@ export default function DomainsPage() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2 flex-wrap">
+                    {d.lander_name && (
+                      <button
+                        onClick={() => handleDeploy(d.id, d.domain)}
+                        disabled={deploying === d.id}
+                        className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors"
+                      >
+                        {deploying === d.id ? 'Deploying...' : 'Deploy'}
+                      </button>
+                    )}
                     {d.status === 'active' && (
                       <button
                         onClick={() => handleRotateNow(d.domain)}
