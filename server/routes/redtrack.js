@@ -1,5 +1,5 @@
 const express = require('express');
-const axios = require('axios');
+const axios   = require('axios');
 
 const router = express.Router();
 const BASE = 'https://api.redtrack.io';
@@ -57,6 +57,22 @@ router.get('/streams/:id', async (req, res) => {
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+router.post('/streams', async (req, res) => {
+  const key = process.env.REDTRACK_API_KEY;
+  if (!key) return res.status(500).json({ message: 'REDTRACK_API_KEY not configured' });
+  try {
+    const { data } = await axios.post(
+      'https://api.redtrack.io/streams',
+      req.body,
+      { params: { api_key: key }, timeout: 10000 }
+    );
+    res.status(201).json(data);
+  } catch (err) {
+    const msg = err.response?.data?.error || err.message;
+    res.status(err.response?.status || 500).json({ message: msg });
   }
 });
 
