@@ -36,8 +36,7 @@ async function init() {
       notes              TEXT
     );
 
-    CREATE INDEX IF NOT EXISTS idx_domains_status  ON domains(status);
-    CREATE INDEX IF NOT EXISTS idx_domains_funnel  ON domains(funnel_id);
+    CREATE INDEX IF NOT EXISTS idx_domains_status ON domains(status);
 
     CREATE TABLE IF NOT EXISTS funnel_offers (
       id                SERIAL PRIMARY KEY,
@@ -67,6 +66,10 @@ async function init() {
     ALTER TABLE domains ADD COLUMN IF NOT EXISTS role               TEXT NOT NULL DEFAULT 'backup';
     ALTER TABLE domains ADD COLUMN IF NOT EXISTS redtrack_lander_id TEXT;
     ALTER TABLE rotation_history ADD COLUMN IF NOT EXISTS funnel_id INTEGER REFERENCES funnels(id) ON DELETE SET NULL;
+  `).catch(() => {});
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_domains_funnel ON domains(funnel_id);
   `).catch(() => {});
 }
 
