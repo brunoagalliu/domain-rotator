@@ -326,6 +326,7 @@ export default function FunnelDetailPage() {
 
   const [funnel, setFunnel]             = useState(null);
   const [stream, setStream]             = useState(null);
+  const [streamError, setStreamError]   = useState('');
   const [localLanders, setLocalLanders] = useState([]);
   const [loading, setLoading]           = useState(true);
   const [showAddDomain, setShowAddDomain] = useState(false);
@@ -340,8 +341,14 @@ export default function FunnelDetailPage() {
       setFunnel(f);
       setLocalLanders(ll);
       if (f.redtrack_stream_id) {
-        const s = await api.get(`/redtrack/streams/${f.redtrack_stream_id}`).catch(() => null);
-        setStream(s);
+        setStreamError('');
+        try {
+          const s = await api.get(`/redtrack/streams/${f.redtrack_stream_id}`);
+          setStream(s);
+        } catch (err) {
+          setStreamError(err.message || 'Failed to load RedTrack stream');
+          setStream(null);
+        }
       }
     } finally {
       setLoading(false);
@@ -410,7 +417,12 @@ export default function FunnelDetailPage() {
       </div>
 
       {/* Landings + Offers side by side (like RT screenshot) */}
-      {funnel.redtrack_stream_id && (
+      {funnel.redtrack_stream_id && streamError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800">
+          <span className="font-medium">Failed to load RedTrack stream: </span>{streamError}
+        </div>
+      )}
+      {funnel.redtrack_stream_id && !streamError && (
         <div className="grid grid-cols-2 gap-4">
           <LandingsCard
             landings={streamLandings}

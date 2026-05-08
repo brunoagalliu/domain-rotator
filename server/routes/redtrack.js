@@ -54,9 +54,13 @@ router.get('/streams', async (req, res) => {
 router.get('/streams/:id', async (req, res) => {
   try {
     const data = await rt(`/streams/${req.params.id}`);
+    console.log('[redtrack] stream response keys:', Object.keys(data || {}));
+    console.log('[redtrack] landings:', JSON.stringify(data?.landings?.slice(0,2)));
+    console.log('[redtrack] offers:', JSON.stringify(data?.offers?.slice(0,2)));
     res.json(data);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('[redtrack] stream fetch error:', err.response?.data || err.message);
+    res.status(err.response?.status || 500).json({ message: err.response?.data?.error || err.message });
   }
 });
 
