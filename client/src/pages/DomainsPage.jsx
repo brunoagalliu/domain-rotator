@@ -222,6 +222,7 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
   }
 
   return (
+    <>
     <tr>
       <td colSpan={6} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
         <div className="px-8 py-3">
@@ -322,6 +323,7 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
         onClose={() => setPublishingDl(null)}
       />
     )}
+    </>
   );
 }
 
