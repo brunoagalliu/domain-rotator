@@ -34,9 +34,7 @@ function DomainForm({ initial = {}, landers, onSave, onClose }) {
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
 
-  function set(key, val) {
-    setForm(f => ({ ...f, [key]: val }));
-  }
+  function set(key, val) { setForm(f => ({ ...f, [key]: val })); }
 
   function handleDomainBlur(e) {
     const d = e.target.value.toLowerCase().trim();
@@ -54,11 +52,8 @@ function DomainForm({ initial = {}, landers, onSave, onClose }) {
         lander_id: form.lander_id ? Number(form.lander_id) : null,
         priority:  Number(form.priority),
       };
-      if (isEdit) {
-        await api.patch(`/domains/${initial.id}`, body);
-      } else {
-        await api.post('/domains', body);
-      }
+      if (isEdit) await api.patch(`/domains/${initial.id}`, body);
+      else await api.post('/domains', body);
       onSave();
     } catch (err) {
       setError(err.message);
@@ -159,16 +154,189 @@ function DomainForm({ initial = {}, landers, onSave, onClose }) {
   );
 }
 
+function LandersSubRow({ domain, allLanders, onChanged }) {
+  const [landers,    setLanders]    = useState(null);
+  const [adding,     setAdding]     = useState(false);
+  const [newLander,  setNewLander]  = useState('');
+  const [newSubdir,  setNewSubdir]  = useState('');
+  const [addErr,     setAddErr]     = useState('');
+  const [deploying,  setDeploying]  = useState(null);
+  const [publishing, setPublishing] = useState(null);
+
+  const load = useCallback(async () => {
+    const rows = await api.get(`/domains/${domain.id}/landers`);
+    setLanders(rows);
+  }, [domain.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handleAdd(e) {
+    e.preventDefault();
+    if (!newLander) return;
+    setAddErr('');
+    try {
+      await api.post(`/domains/${domain.id}/landers`, {
+        lander_id: Number(newLander),
+        subdirectory: newSubdir.trim(),
+      });
+      setNewLander('');
+      setNewSubdir('');
+      setAdding(false);
+      load();
+    } catch (err) {
+      setAddErr(err.message);
+    }
+  }
+
+  async function handleRemove(dlId) {
+    if (!confirm('Remove this lander from the domain?')) return;
+    await api.delete(`/domains/${domain.id}/landers/${dlId}`);
+    load();
+    onChanged();
+  }
+
+  async function handleDeploy(dl) {
+    if (!confirm(`Deploy "${dl.lander_name}" to ${domain.domain}${dl.subdirectory ? '/' + dl.subdirectory : ''}?`)) return;
+    setDeploying(dl.id);
+    try {
+      await api.post(`/domains/${domain.id}/landers/${dl.id}/deploy`);
+      alert('Deployed successfully.');
+    } catch (err) {
+      alert(`Deploy failed: ${err.message}`);
+    } finally {
+      setDeploying(null);
+    }
+  }
+
+  async function handlePublish(dl) {
+    if (!confirm(`Deploy + publish "${dl.lander_name}" to RedTrack?`)) return;
+    setPublishing(dl.id);
+    try {
+      const res = await api.post(`/domains/${domain.id}/landers/${dl.id}/publish`);
+      alert(`Published! RedTrack lander ID: ${res.redtrack_lander?.id}`);
+      load();
+    } catch (err) {
+      alert(`Publish failed: ${err.message}`);
+    } finally {
+      setPublishing(null);
+    }
+  }
+
+  if (landers === null) {
+    return (
+      <tr>
+        <td colSpan={6} className="px-8 py-2 bg-gray-50 text-xs text-gray-400">Loading landers…</td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr>
+      <td colSpan={6} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
+        <div className="px-8 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Landers</span>
+            <button
+              onClick={() => { setAdding(a => !a); setAddErr(''); }}
+              className="text-xs px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition-colors"
+            >
+              {adding ? 'Cancel' : '+ Add Lander'}
+            </button>
+          </div>
+
+          {landers.length === 0 && !adding && (
+            <p className="text-xs text-gray-400 italic">No landers assigned yet.</p>
+          )}
+
+          {landers.length > 0 && (
+            <div className="space-y-1 mb-2">
+              {landers.map(dl => (
+                <div key={dl.id} className="flex items-center gap-3 bg-white rounded border border-gray-200 px-3 py-2">
+                  <span className="text-xs font-medium text-gray-800 min-w-[120px]">{dl.lander_name}</span>
+                  <span className="text-xs font-mono text-gray-400 flex-1">
+                    /{dl.subdirectory || ''}
+                    {dl.redtrack_lander_id && (
+                      <span className="ml-2 text-green-600">RT#{dl.redtrack_lander_id}</span>
+                    )}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleDeploy(dl)}
+                      disabled={deploying === dl.id}
+                      className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors"
+                    >
+                      {deploying === dl.id ? 'Deploying…' : 'Deploy'}
+                    </button>
+                    <button
+                      onClick={() => handlePublish(dl)}
+                      disabled={publishing === dl.id}
+                      className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50 transition-colors"
+                    >
+                      {publishing === dl.id ? 'Publishing…' : 'Publish to RT'}
+                    </button>
+                    <button
+                      onClick={() => handleRemove(dl.id)}
+                      className="text-xs px-2 py-0.5 bg-red-50 text-red-500 rounded hover:bg-red-100 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {adding && (
+            <form onSubmit={handleAdd} className="flex items-end gap-2 mt-2">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Lander</label>
+                <select
+                  value={newLander}
+                  onChange={e => setNewLander(e.target.value)}
+                  required
+                  className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="">Select lander…</option>
+                  {allLanders.map(l => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Subdirectory (optional)</label>
+                <input
+                  value={newSubdir}
+                  onChange={e => setNewSubdir(e.target.value)}
+                  placeholder="e.g. lander2"
+                  className="border border-gray-300 rounded px-2 py-1 text-xs font-mono w-32 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <button
+                type="submit"
+                className="px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 transition-colors"
+              >
+                Add
+              </button>
+              {addErr && <span className="text-xs text-red-500">{addErr}</span>}
+            </form>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 const TABS = ['all', 'active', 'standby', 'banned'];
 
 export default function DomainsPage() {
-  const [domains,  setDomains]  = useState([]);
-  const [landers,  setLanders]  = useState([]);
-  const [filter,   setFilter]   = useState('all');
-  const [modal,    setModal]    = useState(null); // null | 'add' | domain-object
-  const [loading,  setLoading]  = useState(true);
-  const [rotating, setRotating]   = useState(false);
+  const [domains,   setDomains]   = useState([]);
+  const [landers,   setLanders]   = useState([]);
+  const [filter,    setFilter]    = useState('all');
+  const [modal,     setModal]     = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [rotating,  setRotating]  = useState(false);
   const [deploying, setDeploying] = useState(null);
+  const [expanded,  setExpanded]  = useState(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -181,6 +349,14 @@ export default function DomainsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  function toggleExpanded(id) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   const counts   = domains.reduce((acc, d) => { acc[d.status] = (acc[d.status] || 0) + 1; return acc; }, {});
   const filtered = filter === 'all' ? domains : domains.filter(d => d.status === filter);
@@ -225,7 +401,6 @@ export default function DomainsPage() {
 
   return (
     <div className="p-6 max-w-7xl">
-      {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Domain Pool</h1>
@@ -243,7 +418,6 @@ export default function DomainsPage() {
         </button>
       </div>
 
-      {/* Filter tabs */}
       <div className="flex gap-1 mb-4">
         {TABS.map(t => (
           <button
@@ -258,11 +432,11 @@ export default function DomainsPage() {
         ))}
       </div>
 
-      {/* Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
+              <th className="w-6 px-4 py-3"></th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Domain</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Lander</th>
@@ -273,71 +447,94 @@ export default function DomainsPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={6} className="text-center py-10 text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={7} className="text-center py-10 text-gray-400">Loading...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={6} className="text-center py-10 text-gray-400">No domains found</td></tr>
+              <tr><td colSpan={7} className="text-center py-10 text-gray-400">No domains found</td></tr>
             ) : filtered.map(d => (
-              <tr key={d.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-4 py-3 font-mono text-xs text-gray-800">{d.domain}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[d.status]}`}>
-                    {d.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-gray-500 text-xs">{d.lander_name || '—'}</td>
-                <td className="px-4 py-3 text-gray-500">{d.priority}</td>
-                <td className="px-4 py-3 text-gray-400 text-xs">
-                  {new Date(d.added_at).toLocaleDateString()}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {d.lander_name && (
-                      <button
-                        onClick={() => handleDeploy(d.id, d.domain)}
-                        disabled={deploying === d.id}
-                        className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors"
-                      >
-                        {deploying === d.id ? 'Deploying...' : 'Deploy'}
-                      </button>
-                    )}
-                    {d.status === 'active' && (
-                      <button
-                        onClick={() => handleRotateNow(d.domain)}
-                        disabled={rotating}
-                        className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-50 transition-colors"
-                      >
-                        Rotate Now
-                      </button>
-                    )}
-                    {d.status === 'banned' && (
-                      <button
-                        onClick={() => handleRestore(d.id)}
-                        className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-                      >
-                        Restore
-                      </button>
-                    )}
+              <>
+                <tr key={d.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3">
                     <button
-                      onClick={() => setModal(d)}
-                      className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
+                      onClick={() => toggleExpanded(d.id)}
+                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                      title={expanded.has(d.id) ? 'Collapse landers' : 'Expand landers'}
                     >
-                      Edit
+                      <svg
+                        className={`w-4 h-4 transition-transform ${expanded.has(d.id) ? 'rotate-90' : ''}`}
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
                     </button>
-                    <button
-                      onClick={() => handleDelete(d.id, d.domain)}
-                      className="text-xs px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-gray-800">{d.domain}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[d.status]}`}>
+                      {d.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{d.lander_name || '—'}</td>
+                  <td className="px-4 py-3 text-gray-500">{d.priority}</td>
+                  <td className="px-4 py-3 text-gray-400 text-xs">
+                    {new Date(d.added_at).toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {d.lander_name && (
+                        <button
+                          onClick={() => handleDeploy(d.id, d.domain)}
+                          disabled={deploying === d.id}
+                          className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors"
+                        >
+                          {deploying === d.id ? 'Deploying...' : 'Deploy'}
+                        </button>
+                      )}
+                      {d.status === 'active' && (
+                        <button
+                          onClick={() => handleRotateNow(d.domain)}
+                          disabled={rotating}
+                          className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-50 transition-colors"
+                        >
+                          Rotate Now
+                        </button>
+                      )}
+                      {d.status === 'banned' && (
+                        <button
+                          onClick={() => handleRestore(d.id)}
+                          className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                        >
+                          Restore
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setModal(d)}
+                        className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(d.id, d.domain)}
+                        className="text-xs px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {expanded.has(d.id) && (
+                  <LandersSubRow
+                    key={`landers-${d.id}`}
+                    domain={d}
+                    allLanders={landers}
+                    onChanged={load}
+                  />
+                )}
+              </>
             ))}
           </tbody>
         </table>
       </div>
 
-      {/* Modal */}
       {modal && (
         <Modal
           title={modal === 'add' ? 'Add Domain' : `Edit: ${modal.domain}`}
