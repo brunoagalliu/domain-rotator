@@ -217,13 +217,13 @@ export default function FunnelDetailPage() {
     try {
       const [f, c, l, o] = await Promise.all([
         api.get(`/funnels/${id}`),
-        api.get('/redtrack/campaigns').catch(() => []),
+        api.get('/redtrack/streams').catch(() => []),
         api.get('/redtrack/landings').catch(() => []),
         api.get('/redtrack/offers').catch(() => []),
       ]);
       setFunnel(f);
       setNameEdit(f.name);
-      setCampaignEdit(f.redtrack_campaign_id || '');
+      setCampaignEdit(f.redtrack_stream_id || '');
       setCampaigns(c);
       setLandings(l);
       setRtOffers(o);
@@ -241,7 +241,7 @@ export default function FunnelDetailPage() {
     try {
       await api.patch(`/funnels/${id}`, {
         name: nameEdit,
-        redtrack_campaign_id: campaignEdit || null,
+        redtrack_stream_id: campaignEdit || null,
       });
       load();
     } catch (err) {
@@ -317,7 +317,7 @@ export default function FunnelDetailPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">RedTrack Campaign</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">RedTrack Funnel Template</label>
               <select
                 value={campaignEdit}
                 onChange={e => setCampaignEdit(e.target.value)}

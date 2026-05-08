@@ -5,36 +5,32 @@ const { uploadLander } = require('./cpanel');
 
 const LANDERS_DIR = path.join(__dirname, '../landers');
 
-async function updateRedTrackCampaign(campaignId, oldLanderId, newLanderId) {
+async function updateRedTrackStream(streamId, oldLanderId, newLanderId) {
   const apiKey = process.env.REDTRACK_API_KEY;
-  if (!apiKey || !campaignId || !oldLanderId || !newLanderId) return;
+  if (!apiKey || !streamId || !oldLanderId || !newLanderId) return;
 
   try {
-    const { data: campaign } = await axios.get(
-      `https://api.redtrack.io/campaigns/${campaignId}`,
+    const { data: stream } = await axios.get(
+      `https://api.redtrack.io/streams/${streamId}`,
       { params: { api_key: apiKey }, timeout: 10000 }
     );
 
     let changed = false;
-    for (const streamItem of campaign.streams || []) {
-      const stream = streamItem.stream;
-      if (!stream?.landings) continue;
-      for (const landing of stream.landings) {
-        if (landing.id === oldLanderId) {
-          landing.id = newLanderId;
-          changed = true;
-        }
+    for (const landing of stream.landings || []) {
+      if (landing.id === oldLanderId) {
+        landing.id = newLanderId;
+        changed = true;
       }
     }
 
     if (!changed) return;
 
     await axios.put(
-      `https://api.redtrack.io/campaigns/${campaignId}`,
-      campaign,
+      `https://api.redtrack.io/streams/${streamId}`,
+      stream,
       { params: { api_key: apiKey }, timeout: 10000 }
     );
-    console.log(`[rotator] RedTrack campaign ${campaignId} updated: ${oldLanderId} → ${newLanderId}`);
+    console.log(`[rotator] RedTrack stream ${streamId} updated: ${oldLanderId} → ${newLanderId}`);
   } catch (err) {
     console.error('[rotator] RedTrack update failed:', err.message);
   }
@@ -47,7 +43,7 @@ async function rotate(bannedDomain, triggerSource = 'api') {
 
     // Get domain + funnel campaign id in one query
     const { rows: [fromDomain] } = await client.query(
-      `SELECT d.*, f.redtrack_campaign_id
+      `SELECT d.*, f.redtrack_stream_id
        FROM domains d
        LEFT JOIN funnels f ON d.funnel_id = f.id
        WHERE d.domain = $1`,
@@ -117,9 +113,9 @@ async function rotate(bannedDomain, triggerSource = 'api') {
 
     await client.query('COMMIT');
 
-    // Best-effort: update RedTrack campaign to swap the landing
-    updateRedTrackCampaign(
-      fromDomain.redtrack_campaign_id,
+    // Best-effort: update RedTrack funnel template to swap the landing
+    updateRedTrackStream(
+      fromDomain.redtrack_stream_id,
       fromDomain.redtrack_lander_id,
       nextDomain.redtrack_lander_id
     );

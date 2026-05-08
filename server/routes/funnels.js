@@ -48,12 +48,12 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { name, redtrack_campaign_id } = req.body;
+  const { name, redtrack_stream_id } = req.body;
   if (!name) return res.status(400).json({ message: 'name is required.' });
   try {
     const { rows: [funnel] } = await pool.query(
-      `INSERT INTO funnels (name, redtrack_campaign_id) VALUES ($1, $2) RETURNING *`,
-      [name.trim(), redtrack_campaign_id || null]
+      `INSERT INTO funnels (name, redtrack_stream_id) VALUES ($1, $2) RETURNING *`,
+      [name.trim(), redtrack_stream_id || null]
     );
     res.status(201).json(funnel);
   } catch (err) {
@@ -62,14 +62,14 @@ router.post('/', async (req, res) => {
 });
 
 router.patch('/:id', async (req, res) => {
-  const { name, redtrack_campaign_id } = req.body;
+  const { name, redtrack_stream_id } = req.body;
   try {
     const { rows: [funnel] } = await pool.query(
       `UPDATE funnels SET
         name                 = COALESCE($1, name),
-        redtrack_campaign_id = COALESCE($2, redtrack_campaign_id)
+        redtrack_stream_id = COALESCE($2, redtrack_stream_id)
        WHERE id = $3 RETURNING *`,
-      [name || null, redtrack_campaign_id || null, req.params.id]
+      [name || null, redtrack_stream_id || null, req.params.id]
     );
     if (!funnel) return res.status(404).json({ message: 'Not found.' });
     res.json(funnel);
@@ -87,29 +87,27 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Import funnel from a RedTrack campaign
+// Import funnel from a RedTrack funnel template (stream)
 router.post('/import', async (req, res) => {
-  const { redtrack_campaign_id } = req.body;
-  if (!redtrack_campaign_id) {
-    return res.status(400).json({ message: 'redtrack_campaign_id is required.' });
+  const { redtrack_stream_id } = req.body;
+  if (!redtrack_stream_id) {
+    return res.status(400).json({ message: 'redtrack_stream_id is required.' });
   }
 
-  let campaign;
+  let stream;
   try {
-    campaign = await rt(`/campaigns/${redtrack_campaign_id}`);
+    stream = await rt(`/streams/${redtrack_stream_id}`);
   } catch (err) {
     return res.status(502).json({ message: `RedTrack fetch failed: ${err.message}` });
   }
 
-  // Collect unique offers from all streams
+  // Collect unique offers from the funnel template
   const seen = new Set();
   const offers = [];
-  for (const sw of campaign.streams || []) {
-    for (const o of sw.stream?.offers || []) {
-      if (!seen.has(o.id)) {
-        seen.add(o.id);
-        offers.push({ id: o.id, name: o.name, weight: o.weight || 100 });
-      }
+  for (const o of stream.offers || []) {
+    if (!seen.has(o.id)) {
+      seen.add(o.id);
+      offers.push({ id: o.id, name: o.name, weight: o.weight || 100 });
     }
   }
 
@@ -118,8 +116,8 @@ router.post('/import', async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: [funnel] } = await client.query(
-      `INSERT INTO funnels (name, redtrack_campaign_id) VALUES ($1, $2) RETURNING *`,
-      [campaign.title, redtrack_campaign_id]
+      `INSERT INTO funnels (name, redtrack_stream_id) VALUES ($1, $2) RETURNING *`,
+      [stream.title, redtrack_stream_id]
     );
 
     for (const o of offers) {

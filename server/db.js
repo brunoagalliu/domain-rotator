@@ -71,6 +71,11 @@ async function init() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_domains_funnel ON domains(funnel_id);
   `).catch(() => {});
+
+  // Rename campaign column to stream (funnel templates are /streams in RedTrack API)
+  await pool.query(`
+    ALTER TABLE funnels RENAME COLUMN redtrack_campaign_id TO redtrack_stream_id;
+  `).catch(() => {});
 }
 
 module.exports = { pool, init };

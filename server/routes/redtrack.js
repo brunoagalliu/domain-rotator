@@ -41,4 +41,23 @@ router.get('/campaigns', async (req, res) => {
   }
 });
 
+// Funnel templates
+router.get('/streams', async (req, res) => {
+  try {
+    const data = await rt('/streams');
+    res.json(data.items || data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.get('/streams/:id', async (req, res) => {
+  try {
+    const data = await rt(`/streams/${req.params.id}`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = { router, rt };

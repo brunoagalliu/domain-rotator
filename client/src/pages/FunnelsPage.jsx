@@ -11,7 +11,7 @@ function ImportFunnelModal({ onSave, onClose }) {
   const [error, setError]         = useState('');
 
   useEffect(() => {
-    api.get('/redtrack/campaigns')
+    api.get('/redtrack/streams')
       .then(setCampaigns)
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -26,7 +26,7 @@ function ImportFunnelModal({ onSave, onClose }) {
     setSaving(true);
     setError('');
     try {
-      const funnel = await api.post('/funnels/import', { redtrack_campaign_id: selected.id });
+      const funnel = await api.post('/funnels/import', { redtrack_stream_id: selected.id });
       onSave(funnel);
     } catch (err) {
       setError(err.message);
@@ -46,15 +46,15 @@ function ImportFunnelModal({ onSave, onClose }) {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search campaigns..."
+            placeholder="Search funnel templates..."
             autoFocus
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
           <div className="border border-gray-200 rounded-md overflow-hidden max-h-72 overflow-y-auto">
             {loading ? (
-              <p className="text-center text-gray-400 text-sm py-8">Loading campaigns...</p>
+              <p className="text-center text-gray-400 text-sm py-8">Loading funnel templates...</p>
             ) : filtered.length === 0 ? (
-              <p className="text-center text-gray-400 text-sm py-8">No campaigns found</p>
+              <p className="text-center text-gray-400 text-sm py-8">No funnel templates found</p>
             ) : filtered.map(c => (
               <button
                 key={c.id}
@@ -95,7 +95,7 @@ function ImportFunnelModal({ onSave, onClose }) {
 }
 
 function NewFunnelModal({ campaigns, onSave, onClose }) {
-  const [form, setForm] = useState({ name: '', redtrack_campaign_id: '' });
+  const [form, setForm] = useState({ name: '', redtrack_stream_id: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -106,7 +106,7 @@ function NewFunnelModal({ campaigns, onSave, onClose }) {
     try {
       const funnel = await api.post('/funnels', {
         name: form.name,
-        redtrack_campaign_id: form.redtrack_campaign_id || null,
+        redtrack_stream_id: form.redtrack_stream_id || null,
       });
       onSave(funnel);
     } catch (err) {
@@ -137,8 +137,8 @@ function NewFunnelModal({ campaigns, onSave, onClose }) {
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">RedTrack Campaign</label>
             <select
-              value={form.redtrack_campaign_id}
-              onChange={e => setForm(f => ({ ...f, redtrack_campaign_id: e.target.value }))}
+              value={form.redtrack_stream_id}
+              onChange={e => setForm(f => ({ ...f, redtrack_stream_id: e.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">None</option>
@@ -176,7 +176,7 @@ export default function FunnelsPage() {
     try {
       const [f, c] = await Promise.all([
         api.get('/funnels'),
-        api.get('/redtrack/campaigns').catch(() => []),
+        api.get('/redtrack/streams').catch(() => []),
       ]);
       setFunnels(f);
       setCampaigns(c);
@@ -231,7 +231,7 @@ export default function FunnelsPage() {
       ) : (
         <div className="grid gap-4">
           {funnels.map(f => {
-            const campaign = campaigns.find(c => c.id === f.redtrack_campaign_id);
+            const campaign = campaigns.find(c => c.id === f.redtrack_stream_id);
             const isActive = parseInt(f.is_active) > 0;
             return (
               <div
