@@ -2,6 +2,98 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 
+function ImportFunnelModal({ onSave, onClose }) {
+  const [campaigns, setCampaigns] = useState([]);
+  const [search, setSearch]       = useState('');
+  const [selected, setSelected]   = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState('');
+
+  useEffect(() => {
+    api.get('/redtrack/campaigns')
+      .then(setCampaigns)
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = campaigns.filter(c =>
+    c.title.toLowerCase().includes(search.toLowerCase())
+  );
+
+  async function handleImport() {
+    if (!selected) return;
+    setSaving(true);
+    setError('');
+    try {
+      const funnel = await api.post('/funnels/import', { redtrack_campaign_id: selected.id });
+      onSave(funnel);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h2 className="text-base font-semibold text-gray-900">Import from RedTrack</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search campaigns..."
+            autoFocus
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <div className="border border-gray-200 rounded-md overflow-hidden max-h-72 overflow-y-auto">
+            {loading ? (
+              <p className="text-center text-gray-400 text-sm py-8">Loading campaigns...</p>
+            ) : filtered.length === 0 ? (
+              <p className="text-center text-gray-400 text-sm py-8">No campaigns found</p>
+            ) : filtered.map(c => (
+              <button
+                key={c.id}
+                onClick={() => setSelected(c)}
+                className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-100 last:border-0 transition-colors ${
+                  selected?.id === c.id
+                    ? 'bg-indigo-50 text-indigo-700 font-medium'
+                    : 'hover:bg-gray-50 text-gray-800'
+                }`}
+              >
+                {c.title}
+              </button>
+            ))}
+          </div>
+          {selected && (
+            <p className="text-xs text-gray-500">
+              Selected: <span className="font-medium text-gray-800">{selected.title}</span>
+            </p>
+          )}
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={onClose}
+              className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
+              Cancel
+            </button>
+            <button
+              onClick={handleImport}
+              disabled={!selected || saving}
+              className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            >
+              {saving ? 'Importing...' : 'Import Funnel'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NewFunnelModal({ campaigns, onSave, onClose }) {
   const [form, setForm] = useState({ name: '', redtrack_campaign_id: '' });
   const [saving, setSaving] = useState(false);
@@ -77,7 +169,8 @@ export default function FunnelsPage() {
   const [funnels, setFunnels]     = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading]     = useState(true);
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal]   = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -107,12 +200,20 @@ export default function FunnelsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Funnels</h1>
           <p className="text-sm text-gray-500 mt-1">{funnels.length} funnel{funnels.length !== 1 ? 's' : ''}</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors"
-        >
-          + New Funnel
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            Import from RedTrack
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors"
+          >
+            + New Funnel
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -180,6 +281,13 @@ export default function FunnelsPage() {
           campaigns={campaigns}
           onSave={funnel => { setShowModal(false); navigate(`/funnels/${funnel.id}`); }}
           onClose={() => setShowModal(false)}
+        />
+      )}
+
+      {showImport && (
+        <ImportFunnelModal
+          onSave={funnel => { setShowImport(false); navigate(`/funnels/${funnel.id}`); }}
+          onClose={() => setShowImport(false)}
         />
       )}
     </div>

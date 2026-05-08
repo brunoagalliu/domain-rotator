@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
+const { rt } = require('./redtrack');
 
 const router = express.Router();
 
@@ -83,6 +84,60 @@ router.delete('/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+// Import funnel from a RedTrack campaign
+router.post('/import', async (req, res) => {
+  const { redtrack_campaign_id } = req.body;
+  if (!redtrack_campaign_id) {
+    return res.status(400).json({ message: 'redtrack_campaign_id is required.' });
+  }
+
+  let campaign;
+  try {
+    campaign = await rt(`/campaigns/${redtrack_campaign_id}`);
+  } catch (err) {
+    return res.status(502).json({ message: `RedTrack fetch failed: ${err.message}` });
+  }
+
+  // Collect unique offers from all streams
+  const seen = new Set();
+  const offers = [];
+  for (const sw of campaign.streams || []) {
+    for (const o of sw.stream?.offers || []) {
+      if (!seen.has(o.id)) {
+        seen.add(o.id);
+        offers.push({ id: o.id, name: o.name, weight: o.weight || 100 });
+      }
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: [funnel] } = await client.query(
+      `INSERT INTO funnels (name, redtrack_campaign_id) VALUES ($1, $2) RETURNING *`,
+      [campaign.title, redtrack_campaign_id]
+    );
+
+    for (const o of offers) {
+      await client.query(
+        `INSERT INTO funnel_offers (funnel_id, redtrack_offer_id, offer_title, weight)
+         VALUES ($1, $2, $3, $4)`,
+        [funnel.id, o.id, o.name, o.weight]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json({ ...funnel, offers_imported: offers.length });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') return res.status(409).json({ message: 'This campaign is already imported as a funnel.' });
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
   }
 });
 
