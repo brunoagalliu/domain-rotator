@@ -99,16 +99,27 @@ router.post('/streams', async (req, res) => {
   const key = process.env.REDTRACK_API_KEY;
   if (!key) return res.status(500).json({ message: 'REDTRACK_API_KEY not configured' });
   try {
+    // Only send fields RT actually understands; omit our internal 'type' string
+    const { type: _ignored, ...rest } = req.body;
+    const payload = { ...rest };
+    console.log('[redtrack] POST /streams payload:', JSON.stringify(payload));
+
     const { data } = await axios.post(
       'https://api.redtrack.io/streams',
-      req.body,
+      payload,
       { params: { api_key: key }, timeout: 10000 }
     );
-    console.log('[redtrack] POST /streams response keys:', Object.keys(data || {}));
-    console.log('[redtrack] created stream id/._id:', data?.id, data?._id);
-    res.status(201).json(normalizeStream(data));
+    console.log('[redtrack] POST /streams response:', JSON.stringify(data));
+
+    const normalized = normalizeStream(data);
+    if (!normalized?.id) {
+      console.error('[redtrack] POST /streams: no id in response', data);
+      return res.status(500).json({ message: 'RedTrack did not return a stream ID. Check Railway logs.' });
+    }
+    res.status(201).json(normalized);
   } catch (err) {
-    const msg = err.response?.data?.error || err.message;
+    console.error('[redtrack] POST /streams error:', err.response?.status, JSON.stringify(err.response?.data));
+    const msg = err.response?.data?.error || err.response?.data?.message || err.message;
     res.status(err.response?.status || 500).json({ message: msg });
   }
 });
