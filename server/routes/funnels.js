@@ -87,6 +87,24 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Get or create a funnel linked to a RedTrack stream
+router.post('/by-stream', async (req, res) => {
+  const { redtrack_stream_id, title } = req.body;
+  if (!redtrack_stream_id) return res.status(400).json({ message: 'redtrack_stream_id is required.' });
+  try {
+    const { rows: [funnel] } = await pool.query(
+      `INSERT INTO funnels (name, redtrack_stream_id)
+       VALUES ($1, $2)
+       ON CONFLICT (redtrack_stream_id) DO UPDATE SET name = EXCLUDED.name
+       RETURNING *`,
+      [title || redtrack_stream_id, redtrack_stream_id]
+    );
+    res.json(funnel);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Import funnel from a RedTrack funnel template (stream)
 router.post('/import', async (req, res) => {
   const { redtrack_stream_id } = req.body;
