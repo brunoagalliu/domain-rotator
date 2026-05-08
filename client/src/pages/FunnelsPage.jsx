@@ -2,54 +2,88 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 
+const FUNNEL_TYPES = [
+  { value: 'single_landing', label: 'Single landing' },
+  { value: 'multi_landing',  label: 'Multi landing' },
+];
+
+function ItemRow({ index, item, rtOptions, onChange, onRemove }) {
+  return (
+    <div className="border border-gray-200 rounded-lg p-3 space-y-2">
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-semibold text-gray-500 w-5 shrink-0">{index + 1}</span>
+        <select
+          value={item.id}
+          onChange={e => {
+            const opt = rtOptions.find(o => o.id === e.target.value);
+            onChange({ ...item, id: e.target.value, name: opt?.title || e.target.value });
+          }}
+          className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <option value="">None</option>
+          {rtOptions.map(o => <option key={o.id} value={o.id}>{o.title}</option>)}
+        </select>
+        <div className="flex items-center gap-1 shrink-0">
+          <label className="text-xs text-gray-400">Weight</label>
+          <input
+            type="number" min="1" value={item.weight}
+            onChange={e => onChange({ ...item, weight: Number(e.target.value) })}
+            className="w-16 border border-gray-300 rounded-md px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        <button onClick={onRemove} className="text-gray-400 hover:text-red-500 transition-colors shrink-0">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CreateFunnelModal({ onSave, onClose }) {
-  const [title, setTitle]       = useState('');
-  const [landings, setLandings] = useState([]);
-  const [offers, setOffers]     = useState([]);
+  const [title,      setTitle]      = useState('');
+  const [type,       setType]       = useState('single_landing');
+  const [landings,   setLandings]   = useState([{ id: '', name: '', weight: 100 }]);
+  const [offers,     setOffers]     = useState([{ id: '', name: '', weight: 100 }]);
   const [rtLandings, setRtLandings] = useState([]);
-  const [rtOffers, setRtOffers]     = useState([]);
-  const [loadingRt, setLoadingRt]   = useState(true);
-  const [saving, setSaving]         = useState(false);
-  const [error, setError]           = useState('');
+  const [rtOffers,   setRtOffers]   = useState([]);
+  const [loadingRt,  setLoadingRt]  = useState(true);
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState('');
 
   useEffect(() => {
     Promise.all([
       api.get('/redtrack/landings').catch(() => []),
       api.get('/redtrack/offers').catch(() => []),
-    ]).then(([l, o]) => { setRtLandings(l); setRtOffers(o); })
+    ]).then(([l, o]) => { setRtLandings(Array.isArray(l) ? l : []); setRtOffers(Array.isArray(o) ? o : []); })
       .finally(() => setLoadingRt(false));
   }, []);
 
-  function addLanding(id) {
-    if (!id || landings.find(l => l.id === id)) return;
-    const rt = rtLandings.find(l => l.id === id);
-    setLandings(prev => [...prev, { id, name: rt?.title || id, weight: 100 }]);
+  function addRow(list, setList) {
+    setList(prev => [...prev, { id: '', name: '', weight: 100 }]);
   }
 
-  function addOffer(id) {
-    if (!id || offers.find(o => o.id === id)) return;
-    const rt = rtOffers.find(o => o.id === id);
-    setOffers(prev => [...prev, { id, name: rt?.title || id, weight: 100 }]);
+  function updateRow(list, setList, idx, updated) {
+    setList(prev => prev.map((item, i) => i === idx ? updated : item));
   }
 
-  function updateWeight(list, setList, id, w) {
-    setList(prev => prev.map(i => i.id === id ? { ...i, weight: Number(w) } : i));
+  function removeRow(list, setList, idx) {
+    setList(prev => prev.filter((_, i) => i !== idx));
   }
 
-  function remove(list, setList, id) {
-    setList(prev => prev.filter(i => i.id !== id));
-  }
-
-  async function handleCreate() {
+  async function handleSave() {
     if (!title.trim()) return setError('Title is required.');
-    if (offers.length === 0) return setError('At least one offer is required.');
+    const validOffers = offers.filter(o => o.id);
+    if (validOffers.length === 0) return setError('At least one offer is required.');
     setSaving(true);
     setError('');
     try {
       const stream = await api.post('/redtrack/streams', {
         title: title.trim(),
-        landings: landings.map(({ id, weight }) => ({ id, weight })),
-        offers:   offers.map(({ id, weight }) => ({ id, weight })),
+        type,
+        landings: landings.filter(l => l.id).map(({ id, weight }) => ({ id, weight })),
+        offers:   validOffers.map(({ id, weight }) => ({ id, weight })),
       });
       const funnel = await api.post('/funnels/by-stream', {
         redtrack_stream_id: stream.id,
@@ -63,101 +97,136 @@ function CreateFunnelModal({ onSave, onClose }) {
     }
   }
 
-  const availableLandings = rtLandings.filter(l => !landings.find(x => x.id === l.id));
-  const availableOffers   = rtOffers.filter(o => !offers.find(x => x.id === o.id));
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col">
+
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
-          <h2 className="text-base font-semibold text-gray-900">New Funnel Template</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+          <h2 className="text-base font-semibold text-gray-900">Funnel</h2>
+          <div className="flex items-center gap-3">
+            <button onClick={handleSave} disabled={saving || loadingRt}
+              className="px-5 py-2 text-sm bg-indigo-600 text-white rounded-md font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+            <button onClick={onClose}
+              className="px-5 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
+              Close
+            </button>
+          </div>
         </div>
 
-        <div className="px-6 py-5 space-y-5 overflow-y-auto">
-          {/* Title */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Title *</label>
-            <input
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder="e.g. Antivirus SMS Funnel"
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+        <div className="overflow-y-auto flex-1">
+          {/* Top section */}
+          <div className="px-6 py-5 border-b border-gray-100 space-y-4">
+            <h3 className="text-base font-semibold text-gray-800">New Funnel</h3>
+
+            <div>
+              <input
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="Title *"
+                className="w-full border border-gray-300 rounded-md px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <p className="text-xs text-gray-400 mt-1">Type offer source name or use as placeholder for your custom offers</p>
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Funnel template type</label>
+              <select
+                value={type}
+                onChange={e => setType(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {FUNNEL_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
           </div>
 
-          {loadingRt ? <p className="text-sm text-gray-400">Loading RedTrack data...</p> : (
-            <>
-              {/* Landers */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-2">Landers <span className="text-gray-400 font-normal">(optional)</span></label>
-                {landings.length > 0 && (
-                  <div className="space-y-1.5 mb-2">
-                    {landings.map(l => (
-                      <div key={l.id} className="flex items-center gap-2 bg-gray-50 rounded px-3 py-1.5">
-                        <span className="flex-1 text-xs text-gray-700 truncate">{l.name}</span>
-                        <input
-                          type="number" min="1" value={l.weight}
-                          onChange={e => updateWeight(landings, setLandings, l.id, e.target.value)}
-                          className="w-16 border border-gray-300 rounded px-2 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                        <button onClick={() => remove(landings, setLandings, l.id)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <select
-                  onChange={e => { addLanding(e.target.value); e.target.value = ''; }}
-                  defaultValue=""
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">+ Add lander...</option>
-                  {availableLandings.map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
-                </select>
+          {/* Landings + Offers columns */}
+          {loadingRt ? (
+            <div className="px-6 py-8 text-sm text-gray-400 text-center">Loading RedTrack data...</div>
+          ) : (
+            <div className="grid grid-cols-2 divide-x divide-gray-200">
+              {/* Landings column */}
+              <div className="px-6 py-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-gray-800">Landings</h3>
+                  <button
+                    onClick={() => addRow(landings, setLandings)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500 text-white text-xs font-semibold rounded hover:bg-green-600 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    ADD
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {landings.map((l, i) => (
+                    <ItemRow
+                      key={i}
+                      index={i}
+                      item={l}
+                      rtOptions={rtLandings}
+                      onChange={updated => updateRow(landings, setLandings, i, updated)}
+                      onRemove={() => removeRow(landings, setLandings, i)}
+                    />
+                  ))}
+                  {landings.length === 0 && (
+                    <p className="text-xs text-gray-400 italic text-center py-4">No landings added yet</p>
+                  )}
+                </div>
               </div>
 
-              {/* Offers */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-2">Offers * <span className="text-gray-400 font-normal">(at least one)</span></label>
-                {offers.length > 0 && (
-                  <div className="space-y-1.5 mb-2">
-                    {offers.map(o => (
-                      <div key={o.id} className="flex items-center gap-2 bg-gray-50 rounded px-3 py-1.5">
-                        <span className="flex-1 text-xs text-gray-700 truncate">{o.name}</span>
-                        <input
-                          type="number" min="1" value={o.weight}
-                          onChange={e => updateWeight(offers, setOffers, o.id, e.target.value)}
-                          className="w-16 border border-gray-300 rounded px-2 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                        <button onClick={() => remove(offers, setOffers, o.id)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <select
-                  onChange={e => { addOffer(e.target.value); e.target.value = ''; }}
-                  defaultValue=""
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">+ Add offer...</option>
-                  {availableOffers.map(o => <option key={o.id} value={o.id}>{o.title}</option>)}
-                </select>
+              {/* Offers column */}
+              <div className="px-6 py-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-gray-800">Offers</h3>
+                  <button
+                    onClick={() => addRow(offers, setOffers)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500 text-white text-xs font-semibold rounded hover:bg-green-600 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    ADD
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {offers.map((o, i) => (
+                    <ItemRow
+                      key={i}
+                      index={i}
+                      item={o}
+                      rtOptions={rtOffers}
+                      onChange={updated => updateRow(offers, setOffers, i, updated)}
+                      onRemove={() => removeRow(offers, setOffers, i)}
+                    />
+                  ))}
+                  {offers.length === 0 && (
+                    <p className="text-xs text-gray-400 italic text-center py-4">No offers added yet</p>
+                  )}
+                </div>
               </div>
-            </>
+            </div>
           )}
-
-          {error && <p className="text-red-600 text-sm">{error}</p>}
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 shrink-0">
-          <button onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
-            Cancel
-          </button>
-          <button onClick={handleCreate} disabled={saving || loadingRt}
-            className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-            {saving ? 'Creating...' : 'Create Template'}
-          </button>
+        {/* Footer */}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 shrink-0">
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+          {!error && <span />}
+          <div className="flex items-center gap-3">
+            <button onClick={handleSave} disabled={saving || loadingRt}
+              className="px-5 py-2 text-sm bg-indigo-600 text-white rounded-md font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+            <button onClick={onClose}
+              className="px-5 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>
