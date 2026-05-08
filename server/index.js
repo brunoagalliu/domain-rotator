@@ -6,11 +6,13 @@ const fs = require('fs');
 const jwt = require('jsonwebtoken');
 
 const { init: initDb } = require('./db');
+const { start: startMonitor } = require('./monitor');
 const authRouter = require('./routes/auth');
 const domainsRouter = require('./routes/domains');
 const landersRouter = require('./routes/landers');
 const rotateRouter = require('./routes/rotate');
 const historyRouter = require('./routes/history');
+const monitorRouter = require('./routes/monitor');
 
 // Ensure landers dirs exist
 const LANDERS_DIR = path.join(__dirname, '../landers');
@@ -49,6 +51,7 @@ app.use('/api/domains', domainsRouter);
 app.use('/api/landers', landersRouter);
 app.use('/api/rotate', rotateRouter);
 app.use('/api/history', historyRouter);
+app.use('/api/monitor', monitorRouter);
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/dist')));
@@ -59,6 +62,7 @@ if (process.env.NODE_ENV === 'production') {
 
 initDb()
   .then(() => {
+    startMonitor();
     app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
   })
   .catch((err) => {

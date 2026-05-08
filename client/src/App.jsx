@@ -1,12 +1,55 @@
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import DomainsPage from './pages/DomainsPage';
 import LandersPage from './pages/LandersPage';
 import HistoryPage from './pages/HistoryPage';
-import { getToken, clearToken } from './lib/api';
+import { getToken, clearToken, api } from './lib/api';
 
 function RequireAuth({ children }) {
   return getToken() ? children : <Navigate to="/login" replace />;
+}
+
+function MonitorBadge() {
+  const [status, setStatus] = useState(null);
+
+  useEffect(() => {
+    const load = () => api.get('/monitor/status').then(setStatus).catch(() => {});
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!status) return null;
+
+  const isLive = status.running && status.configured;
+  const dotColor = isLive ? 'bg-green-400' : status.configured ? 'bg-yellow-400' : 'bg-gray-300';
+  const label    = isLive ? 'Monitor live' : status.configured ? 'Monitor starting' : 'Monitor off';
+  const lastPoll = status.lastPoll
+    ? new Date(status.lastPoll).toLocaleTimeString()
+    : null;
+
+  return (
+    <div className="mt-4 px-3 py-2 rounded-md bg-gray-50 border border-gray-100">
+      <div className="flex items-center gap-2">
+        <span className={`w-2 h-2 rounded-full ${dotColor} shrink-0`} />
+        <span className="text-xs text-gray-600 font-medium">{label}</span>
+      </div>
+      {lastPoll && (
+        <p className="text-xs text-gray-400 mt-0.5 pl-4">Last poll {lastPoll}</p>
+      )}
+      {status.lastDetection && (
+        <p className="text-xs text-orange-500 mt-0.5 pl-4 truncate" title={status.lastDetection.domain}>
+          Flagged: {status.lastDetection.domain}
+        </p>
+      )}
+      {status.lastError && (
+        <p className="text-xs text-red-500 mt-0.5 pl-4 truncate" title={status.lastError}>
+          Error: {status.lastError}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function Sidebar() {
@@ -46,9 +89,10 @@ function Sidebar() {
           History
         </NavLink>
       </nav>
+      <MonitorBadge />
       <button
         onClick={() => { clearToken(); window.location.href = '/login'; }}
-        className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+        className="flex items-center gap-2 px-3 py-2 mt-3 rounded-md text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
