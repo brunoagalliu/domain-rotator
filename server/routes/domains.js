@@ -6,9 +6,10 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT d.*, l.name AS lander_name
+      SELECT d.*, l.name AS lander_name, f.name AS funnel_name
       FROM domains d
       LEFT JOIN landers l ON d.lander_id = l.id
+      LEFT JOIN funnels f ON d.funnel_id = f.id
       ORDER BY
         CASE d.status WHEN 'active' THEN 0 WHEN 'standby' THEN 1 ELSE 2 END,
         d.priority DESC,
@@ -21,15 +22,23 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { domain, doc_root, status = 'standby', lander_id, priority = 0, notes } = req.body;
+  const {
+    domain, doc_root, status = 'standby', lander_id,
+    funnel_id, role = 'backup', redtrack_lander_id,
+    priority = 0, notes,
+  } = req.body;
   if (!domain || !doc_root) {
     return res.status(400).json({ message: 'domain and doc_root are required.' });
   }
   try {
     const { rows: [row] } = await pool.query(
-      `INSERT INTO domains (domain, doc_root, status, lander_id, priority, notes)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [domain.toLowerCase().trim(), doc_root.trim(), status, lander_id || null, priority, notes || null]
+      `INSERT INTO domains (domain, doc_root, status, lander_id, funnel_id, role, redtrack_lander_id, priority, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [
+        domain.toLowerCase().trim(), doc_root.trim(), status,
+        lander_id || null, funnel_id || null, role,
+        redtrack_lander_id || null, priority, notes || null,
+      ]
     );
     res.status(201).json(row);
   } catch (err) {
@@ -39,7 +48,11 @@ router.post('/', async (req, res) => {
 });
 
 router.patch('/:id', async (req, res) => {
-  const allowed = ['domain', 'doc_root', 'status', 'lander_id', 'priority', 'notes', 'banned_at'];
+  const allowed = [
+    'domain', 'doc_root', 'status', 'lander_id',
+    'funnel_id', 'role', 'redtrack_lander_id',
+    'priority', 'notes', 'banned_at',
+  ];
   const fields = [];
   const values = [];
   let idx = 1;

@@ -13,6 +13,8 @@ const landersRouter = require('./routes/landers');
 const rotateRouter = require('./routes/rotate');
 const historyRouter = require('./routes/history');
 const monitorRouter = require('./routes/monitor');
+const funnelsRouter = require('./routes/funnels');
+const { router: redtrackRouter } = require('./routes/redtrack');
 
 // Ensure landers dirs exist
 const LANDERS_DIR = path.join(__dirname, '../landers');
@@ -52,6 +54,8 @@ app.use('/api/landers', landersRouter);
 app.use('/api/rotate', rotateRouter);
 app.use('/api/history', historyRouter);
 app.use('/api/monitor', monitorRouter);
+app.use('/api/funnels', funnelsRouter);
+app.use('/api/redtrack', redtrackRouter);
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/dist')));

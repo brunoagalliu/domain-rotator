@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
+import FunnelsPage from './pages/FunnelsPage';
+import FunnelDetailPage from './pages/FunnelDetailPage';
 import DomainsPage from './pages/DomainsPage';
 import LandersPage from './pages/LandersPage';
 import HistoryPage from './pages/HistoryPage';
@@ -67,6 +69,13 @@ function Sidebar() {
         <span className="text-lg font-light text-gray-500"> Rotator</span>
       </div>
       <nav className="space-y-1 flex-1">
+        <NavLink to="/funnels" className={linkClass}>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+          Funnels
+        </NavLink>
         <NavLink to="/domains" className={linkClass}>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -110,7 +119,9 @@ function AppLayout() {
       <Sidebar />
       <main className="flex-1 min-h-screen bg-gray-50">
         <Routes>
-          <Route path="/" element={<Navigate to="/domains" replace />} />
+          <Route path="/" element={<Navigate to="/funnels" replace />} />
+          <Route path="/funnels" element={<FunnelsPage />} />
+          <Route path="/funnels/:id" element={<FunnelDetailPage />} />
           <Route path="/domains" element={<DomainsPage />} />
           <Route path="/landers" element={<LandersPage />} />
           <Route path="/history" element={<HistoryPage />} />

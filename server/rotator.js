@@ -1,89 +1,137 @@
 const path = require('path');
+const axios = require('axios');
 const { pool } = require('./db');
 const { uploadLander } = require('./cpanel');
 
 const LANDERS_DIR = path.join(__dirname, '../landers');
+
+async function updateRedTrackCampaign(campaignId, oldLanderId, newLanderId) {
+  const apiKey = process.env.REDTRACK_API_KEY;
+  if (!apiKey || !campaignId || !oldLanderId || !newLanderId) return;
+
+  try {
+    const { data: campaign } = await axios.get(
+      `https://api.redtrack.io/campaigns/${campaignId}`,
+      { params: { api_key: apiKey }, timeout: 10000 }
+    );
+
+    let changed = false;
+    for (const streamItem of campaign.streams || []) {
+      const stream = streamItem.stream;
+      if (!stream?.landings) continue;
+      for (const landing of stream.landings) {
+        if (landing.id === oldLanderId) {
+          landing.id = newLanderId;
+          changed = true;
+        }
+      }
+    }
+
+    if (!changed) return;
+
+    await axios.put(
+      `https://api.redtrack.io/campaigns/${campaignId}`,
+      campaign,
+      { params: { api_key: apiKey }, timeout: 10000 }
+    );
+    console.log(`[rotator] RedTrack campaign ${campaignId} updated: ${oldLanderId} → ${newLanderId}`);
+  } catch (err) {
+    console.error('[rotator] RedTrack update failed:', err.message);
+  }
+}
 
 async function rotate(bannedDomain, triggerSource = 'api') {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Find the domain being reported
+    // Get domain + funnel campaign id in one query
     const { rows: [fromDomain] } = await client.query(
-      `SELECT * FROM domains WHERE domain = $1`,
+      `SELECT d.*, f.redtrack_campaign_id
+       FROM domains d
+       LEFT JOIN funnels f ON d.funnel_id = f.id
+       WHERE d.domain = $1`,
       [bannedDomain]
     );
 
-    if (!fromDomain) throw new Error(`Domain not found in pool: ${bannedDomain}`);
+    if (!fromDomain) throw new Error(`Domain not found: ${bannedDomain}`);
     if (fromDomain.status === 'banned') throw new Error(`Domain already banned: ${bannedDomain}`);
 
     const wasActive = fromDomain.status === 'active';
 
-    // Mark as banned
     await client.query(
       `UPDATE domains SET status = 'banned', banned_at = NOW() WHERE id = $1`,
       [fromDomain.id]
     );
 
-    // If it wasn't the active domain, just ban it — no rotation needed
     if (!wasActive) {
       await client.query('COMMIT');
       return { fromDomain: bannedDomain, toDomain: null, action: 'banned_only' };
     }
 
-    // Find next standby (highest priority first, then oldest)
-    const { rows: [nextDomain] } = await client.query(
-      `SELECT * FROM domains WHERE status = 'standby' ORDER BY priority DESC, added_at ASC LIMIT 1`
-    );
+    // Find next standby scoped to same funnel (or global pool if no funnel)
+    const nextQuery = fromDomain.funnel_id
+      ? await client.query(
+          `SELECT * FROM domains WHERE status = 'standby' AND funnel_id = $1
+           ORDER BY priority DESC, added_at ASC LIMIT 1`,
+          [fromDomain.funnel_id]
+        )
+      : await client.query(
+          `SELECT * FROM domains WHERE status = 'standby' AND funnel_id IS NULL
+           ORDER BY priority DESC, added_at ASC LIMIT 1`
+        );
+
+    const nextDomain = nextQuery.rows[0];
 
     if (!nextDomain) {
       await client.query(
-        `INSERT INTO rotation_history (from_domain, to_domain, lander_name, trigger_source, status, error)
-         VALUES ($1, 'N/A', null, $2, 'failed', 'No standby domains available')`,
-        [bannedDomain, triggerSource]
+        `INSERT INTO rotation_history (funnel_id, from_domain, to_domain, lander_name, trigger_source, status, error)
+         VALUES ($1, $2, 'N/A', null, $3, 'failed', 'No standby domains available')`,
+        [fromDomain.funnel_id || null, bannedDomain, triggerSource]
       );
       await client.query('COMMIT');
-      throw new Error('No standby domains available in pool');
+      throw new Error('No standby domains available');
     }
 
-    // Determine lander: prefer standby's own lander, fall back to banned domain's
     const landerId = nextDomain.lander_id || fromDomain.lander_id;
-    if (!landerId) throw new Error('No lander assigned to this domain or its standby');
+    let lander = null;
 
-    const { rows: [lander] } = await client.query(
-      `SELECT * FROM landers WHERE id = $1`, [landerId]
-    );
-    if (!lander) throw new Error(`Lander id ${landerId} not found`);
+    if (landerId) {
+      const { rows: [l] } = await client.query(`SELECT * FROM landers WHERE id = $1`, [landerId]);
+      if (l) {
+        lander = l;
+        await uploadLander(path.join(LANDERS_DIR, l.folder), nextDomain.doc_root);
+      }
+    }
 
-    const landerFolder = path.join(LANDERS_DIR, lander.folder);
-
-    // Upload lander files to the new domain via cPanel
-    await uploadLander(landerFolder, nextDomain.doc_root);
-
-    // Promote standby → active
     await client.query(
       `UPDATE domains SET status = 'active', lander_id = $1 WHERE id = $2`,
-      [landerId, nextDomain.id]
+      [landerId || null, nextDomain.id]
     );
 
-    // Log success
     const { rows: [histRow] } = await client.query(
-      `INSERT INTO rotation_history (from_domain, to_domain, lander_name, trigger_source, status)
-       VALUES ($1, $2, $3, $4, 'success') RETURNING id`,
-      [bannedDomain, nextDomain.domain, lander.name, triggerSource]
+      `INSERT INTO rotation_history (funnel_id, from_domain, to_domain, lander_name, trigger_source, status)
+       VALUES ($1, $2, $3, $4, $5, 'success') RETURNING id`,
+      [fromDomain.funnel_id || null, bannedDomain, nextDomain.domain, lander?.name || null, triggerSource]
     );
 
     await client.query('COMMIT');
+
+    // Best-effort: update RedTrack campaign to swap the landing
+    updateRedTrackCampaign(
+      fromDomain.redtrack_campaign_id,
+      fromDomain.redtrack_lander_id,
+      nextDomain.redtrack_lander_id
+    );
+
     return {
       fromDomain: bannedDomain,
       toDomain: nextDomain.domain,
-      lander: lander.name,
+      lander: lander?.name || null,
       historyId: histRow.id,
     };
   } catch (err) {
     await client.query('ROLLBACK');
-    // Log the failure (best-effort, outside the rolled-back transaction)
     pool.query(
       `INSERT INTO rotation_history (from_domain, to_domain, lander_name, trigger_source, status, error)
        VALUES ($1, 'failed', null, $2, 'failed', $3)`,
