@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import PublishToRTModal from '../components/PublishToRTModal';
 
 const STATUS_COLORS = {
   active:  'bg-green-100 text-green-800',
@@ -138,6 +139,7 @@ function DomainRow({ domain, localLanders, onDelete, onRefresh }) {
   const [landers, setLanders]             = useState([]);
   const [showAddLander, setShowAddLander] = useState(false);
   const [actionState, setActionState]     = useState({});
+  const [publishingDl, setPublishingDl]   = useState(null);
 
   const loadLanders = useCallback(async () => {
     const rows = await api.get(`/domains/${domain.id}/landers`).catch(() => []);
@@ -155,15 +157,8 @@ function DomainRow({ domain, localLanders, onDelete, onRefresh }) {
     finally { setActionState(s => ({ ...s, [dl.id]: null })); }
   }
 
-  async function handlePublish(dl) {
-    setActionState(s => ({ ...s, [dl.id]: 'publishing' }));
-    try {
-      const res = await api.post(`/domains/${domain.id}/landers/${dl.id}/publish`);
-      alert(`Published to RedTrack!\nID: ${res.redtrack_lander.id}\nURL: ${res.redtrack_lander.url}`);
-      loadLanders();
-      onRefresh();
-    } catch (err) { alert(`Publish failed: ${err.message}`); }
-    finally { setActionState(s => ({ ...s, [dl.id]: null })); }
+  function handlePublish(dl) {
+    setPublishingDl({ ...dl, domain: domain.domain });
   }
 
   async function handleRemoveLander(dl) {
@@ -199,9 +194,9 @@ function DomainRow({ domain, localLanders, onDelete, onRefresh }) {
               className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors">
               {actionState[dl.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
             </button>
-            <button onClick={() => handlePublish(dl)} disabled={!!actionState[dl.id]}
-              className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 disabled:opacity-50 transition-colors">
-              {actionState[dl.id] === 'publishing' ? 'Publishing...' : 'Publish to RT'}
+            <button onClick={() => handlePublish(dl)}
+              className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors">
+              Publish to RT
             </button>
             <button onClick={() => handleRemoveLander(dl)}
               className="px-2 py-0.5 bg-red-50 text-red-500 rounded hover:bg-red-100 transition-colors">✕</button>
@@ -222,6 +217,15 @@ function DomainRow({ domain, localLanders, onDelete, onRefresh }) {
           </button>
         )}
       </div>
+
+      {publishingDl && (
+        <PublishToRTModal
+          domainId={domain.id}
+          dl={publishingDl}
+          onSuccess={() => { setPublishingDl(null); loadLanders(); onRefresh(); }}
+          onClose={() => setPublishingDl(null)}
+        />
+      )}
     </div>
   );
 }

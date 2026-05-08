@@ -185,12 +185,12 @@ router.post('/:id/landers/:dlId/deploy', async (req, res) => {
 });
 
 // Deploy + publish to RedTrack as a landing page
+// Create RT landing page only (no cPanel deploy — use /deploy for that)
 router.post('/:id/landers/:dlId/publish', async (req, res) => {
   const axios = require('axios');
   try {
     const { rows: [dl] } = await pool.query(
-      `SELECT dl.*, l.folder AS lander_folder, l.name AS lander_name,
-              d.doc_root, d.domain
+      `SELECT dl.*, l.name AS lander_name, d.domain
        FROM domain_landers dl
        JOIN landers l ON dl.lander_id = l.id
        JOIN domains d ON dl.domain_id = d.id
@@ -199,21 +199,19 @@ router.post('/:id/landers/:dlId/publish', async (req, res) => {
     );
     if (!dl) return res.status(404).json({ message: 'Not found.' });
 
-    const targetRoot = dl.subdirectory ? `${dl.doc_root}/${dl.subdirectory}` : dl.doc_root;
-    await uploadLander(path.join(LANDERS_DIR, dl.lander_folder), targetRoot);
-
-    const url = dl.subdirectory
+    const defaultUrl = dl.subdirectory
       ? `https://${dl.domain}/${dl.subdirectory}`
       : `https://${dl.domain}`;
+    const defaultTitle = `${dl.lander_name} - ${dl.domain}${dl.subdirectory ? '/' + dl.subdirectory : ''}`;
 
-    const title = req.body.title || `${dl.lander_name} - ${dl.domain}${dl.subdirectory ? '/' + dl.subdirectory : ''}`;
+    const { title = defaultTitle, url = defaultUrl, type = 'l' } = req.body;
 
     const apiKey = process.env.REDTRACK_API_KEY;
     if (!apiKey) return res.status(500).json({ message: 'REDTRACK_API_KEY not configured.' });
 
     const { data: rtLander } = await axios.post(
       'https://api.redtrack.io/landings',
-      { title, url, type: 'l' },
+      { title, url, type },
       { params: { api_key: apiKey }, timeout: 10000 }
     );
 
@@ -222,7 +220,6 @@ router.post('/:id/landers/:dlId/publish', async (req, res) => {
       [rtLander.id, dl.id]
     );
 
-    // Also update domains.redtrack_lander_id if this is the root path (used for rotation)
     if (!dl.subdirectory) {
       await pool.query(
         `UPDATE domains SET redtrack_lander_id = $1 WHERE id = $2`,

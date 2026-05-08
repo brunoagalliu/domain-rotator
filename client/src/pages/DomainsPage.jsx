@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
+import PublishToRTModal from '../components/PublishToRTModal';
 
 const STATUS_COLORS = {
   active:  'bg-green-100 text-green-800',
@@ -155,13 +156,13 @@ function DomainForm({ initial = {}, landers, onSave, onClose }) {
 }
 
 function LandersSubRow({ domain, allLanders, onChanged }) {
-  const [landers,    setLanders]    = useState(null);
-  const [adding,     setAdding]     = useState(false);
-  const [newLander,  setNewLander]  = useState('');
-  const [newSubdir,  setNewSubdir]  = useState('');
-  const [addErr,     setAddErr]     = useState('');
-  const [deploying,  setDeploying]  = useState(null);
-  const [publishing, setPublishing] = useState(null);
+  const [landers,      setLanders]      = useState(null);
+  const [adding,       setAdding]       = useState(false);
+  const [newLander,    setNewLander]    = useState('');
+  const [newSubdir,    setNewSubdir]    = useState('');
+  const [addErr,       setAddErr]       = useState('');
+  const [deploying,    setDeploying]    = useState(null);
+  const [publishingDl, setPublishingDl] = useState(null); // dl object for modal
 
   const load = useCallback(async () => {
     const rows = await api.get(`/domains/${domain.id}/landers`);
@@ -208,18 +209,8 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
     }
   }
 
-  async function handlePublish(dl) {
-    if (!confirm(`Deploy + publish "${dl.lander_name}" to RedTrack?`)) return;
-    setPublishing(dl.id);
-    try {
-      const res = await api.post(`/domains/${domain.id}/landers/${dl.id}/publish`);
-      alert(`Published! RedTrack lander ID: ${res.redtrack_lander?.id}`);
-      load();
-    } catch (err) {
-      alert(`Publish failed: ${err.message}`);
-    } finally {
-      setPublishing(null);
-    }
+  function handlePublish(dl) {
+    setPublishingDl({ ...dl, domain: domain.domain });
   }
 
   if (landers === null) {
@@ -269,10 +260,9 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
                     </button>
                     <button
                       onClick={() => handlePublish(dl)}
-                      disabled={publishing === dl.id}
-                      className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50 transition-colors"
+                      className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition-colors"
                     >
-                      {publishing === dl.id ? 'Publishing…' : 'Publish to RT'}
+                      Publish to RT
                     </button>
                     <button
                       onClick={() => handleRemove(dl.id)}
@@ -323,6 +313,15 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
         </div>
       </td>
     </tr>
+
+    {publishingDl && (
+      <PublishToRTModal
+        domainId={domain.id}
+        dl={publishingDl}
+        onSuccess={() => { setPublishingDl(null); load(); onChanged(); }}
+        onClose={() => setPublishingDl(null)}
+      />
+    )}
   );
 }
 
