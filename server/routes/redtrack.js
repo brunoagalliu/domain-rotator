@@ -47,12 +47,15 @@ function normalizeStream(s) {
   return { ...s, id: s.id || s._id };
 }
 
-// Funnel templates
+// Funnel templates — always request a large page to avoid pagination gaps
+async function fetchAllStreams() {
+  const data = await rt('/streams?template=true&per=500');
+  return (data.items || data || []).map(normalizeStream);
+}
+
 router.get('/streams', async (req, res) => {
   try {
-    const data = await rt('/streams');
-    const items = (data.items || data || []).map(normalizeStream);
-    if (items[0]) console.log('[redtrack] stream item keys:', Object.keys(items[0]));
+    const items = await fetchAllStreams();
     res.json(items);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -62,8 +65,7 @@ router.get('/streams', async (req, res) => {
 router.get('/streams/:id', async (req, res) => {
   try {
     // RT API has no single-stream GET — fetch the list and find by id or _id
-    const data = await rt('/streams');
-    const items = (data.items || data || []).map(normalizeStream);
+    const items = await fetchAllStreams();
     const stream = items.find(s => String(s.id) === req.params.id || String(s._id) === req.params.id);
     if (!stream) {
       console.error(`[redtrack] stream ${req.params.id} not found. Available IDs:`, items.map(s => s.id || s._id));
@@ -99,9 +101,9 @@ router.post('/streams', async (req, res) => {
   const key = process.env.REDTRACK_API_KEY;
   if (!key) return res.status(500).json({ message: 'REDTRACK_API_KEY not configured' });
   try {
-    // Only send fields RT actually understands; omit our internal 'type' string
+    // Strip our internal 'type' UI field; add template:true so RT treats it as a funnel template
     const { type: _ignored, ...rest } = req.body;
-    const payload = { ...rest };
+    const payload = { ...rest, template: true };
     console.log('[redtrack] POST /streams payload:', JSON.stringify(payload));
 
     const { data } = await axios.post(

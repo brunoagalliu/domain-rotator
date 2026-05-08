@@ -13,9 +13,9 @@ async function updateRedTrackStream(streamId, oldLanderId, newLanderId) {
     // RT has no GET /streams/:id — fetch list and find the stream
     const { data: list } = await axios.get(
       'https://api.redtrack.io/streams',
-      { params: { api_key: apiKey }, timeout: 10000 }
+      { params: { api_key: apiKey, template: true, per: 500 }, timeout: 10000 }
     );
-    const items = list.items || list || [];
+    const items = (list.items || list || []).map(s => ({ ...s, id: s.id || s._id }));
     const stream = items.find(s => String(s.id || s._id) === String(streamId));
     if (!stream) {
       console.error(`[rotator] Stream ${streamId} not found in RT list`);
