@@ -134,9 +134,16 @@ function AddLanderForm({ domainId, localLanders, onSave, onCancel }) {
   );
 }
 
-// ── Domain row with nested landers ────────────────────────────────────────────
-function DomainRow({ domain, localLanders, onDelete, onRefresh }) {
+const STATUS_DOT = {
+  active:  'bg-green-500',
+  standby: 'bg-yellow-400',
+  banned:  'bg-red-400',
+};
+
+// ── Domain row — flat lander pool entry ───────────────────────────────────────
+function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
   const [landers, setLanders]             = useState([]);
+  const [expanded, setExpanded]           = useState(false);
   const [showAddLander, setShowAddLander] = useState(false);
   const [actionState, setActionState]     = useState({});
   const [publishingDl, setPublishingDl]   = useState(null);
@@ -148,6 +155,8 @@ function DomainRow({ domain, localLanders, onDelete, onRefresh }) {
 
   useEffect(() => { loadLanders(); }, [loadLanders]);
 
+  const primaryLander = landers.find(l => l.redtrack_lander_id) || landers[0];
+
   async function handleDeploy(dl) {
     setActionState(s => ({ ...s, [dl.id]: 'deploying' }));
     try {
@@ -157,10 +166,6 @@ function DomainRow({ domain, localLanders, onDelete, onRefresh }) {
     finally { setActionState(s => ({ ...s, [dl.id]: null })); }
   }
 
-  function handlePublish(dl) {
-    setPublishingDl({ ...dl, domain: domain.domain });
-  }
-
   async function handleRemoveLander(dl) {
     if (!confirm(`Remove lander "${dl.lander_name}" from this domain?`)) return;
     await api.delete(`/domains/${domain.id}/landers/${dl.id}`);
@@ -168,55 +173,119 @@ function DomainRow({ domain, localLanders, onDelete, onRefresh }) {
   }
 
   return (
-    <div className="border border-gray-100 rounded-lg overflow-hidden">
-      <div className="flex items-center gap-3 px-3 py-2.5 bg-white">
-        <span className="font-mono text-xs text-gray-800 flex-1 min-w-0 truncate">{domain.domain}</span>
-        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_COLORS[domain.role]}`}>{domain.role}</span>
-        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[domain.status]}`}>{domain.status}</span>
+    <div className={`border rounded-lg overflow-hidden ${
+      domain.status === 'active'  ? 'border-green-200' :
+      domain.status === 'banned'  ? 'border-red-100 opacity-60' :
+      'border-gray-200'
+    }`}>
+      {/* Main row */}
+      <div className={`flex items-center gap-3 px-4 py-3 ${domain.status === 'active' ? 'bg-green-50' : 'bg-white'}`}>
+        <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[domain.status]}`} />
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm font-medium text-gray-800 truncate">{domain.domain}</span>
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_COLORS[domain.status]}`}>
+              {domain.status}
+            </span>
+          </div>
+          {primaryLander ? (
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-xs text-gray-500">
+                {primaryLander.lander_name}
+                {primaryLander.subdirectory
+                  ? <span className="font-mono text-gray-400">/{primaryLander.subdirectory}</span>
+                  : null}
+              </span>
+              {primaryLander.redtrack_lander_id
+                ? <span className="text-xs text-green-600 font-medium">✓ in RT</span>
+                : <span className="text-xs text-amber-500">not in RT</span>
+              }
+            </div>
+          ) : (
+            <span className="text-xs text-gray-400 mt-0.5">No lander assigned</span>
+          )}
+        </div>
+
+        {/* Status-dependent actions */}
+        {domain.status === 'active' && (
+          <button
+            onClick={() => onRotate(domain.domain)}
+            className="text-xs px-3 py-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors font-medium shrink-0"
+          >
+            Ban &amp; Rotate
+          </button>
+        )}
+        {domain.status === 'standby' && primaryLander && !primaryLander.redtrack_lander_id && (
+          <>
+            <button onClick={() => handleDeploy(primaryLander)} disabled={!!actionState[primaryLander.id]}
+              className="text-xs px-2 py-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors shrink-0">
+              {actionState[primaryLander.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
+            </button>
+            <button onClick={() => setPublishingDl({ ...primaryLander, domain: domain.domain })}
+              className="text-xs px-2 py-1.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors shrink-0">
+              Publish to RT
+            </button>
+          </>
+        )}
+
+        {/* Expand toggle */}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="text-gray-300 hover:text-gray-500 transition-colors shrink-0 text-lg leading-none"
+          title="Manage landers"
+        >
+          {expanded ? '▴' : '▾'}
+        </button>
+
         <button onClick={() => onDelete(domain.id, domain.domain)}
-          className="text-xs px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors">
-          Remove
+          className="text-gray-300 hover:text-red-500 transition-colors shrink-0 text-base leading-none">
+          ✕
         </button>
       </div>
 
-      <div className="bg-gray-50 border-t border-gray-100 px-3 py-2 space-y-1.5">
-        {landers.map(dl => (
-          <div key={dl.id} className="flex items-center gap-2 text-xs">
-            <span className="flex-1 text-gray-700 truncate">
-              <span className="font-medium">{dl.lander_name}</span>
-              {dl.subdirectory
-                ? <span className="text-gray-400 font-mono ml-1">/{dl.subdirectory}</span>
-                : <span className="text-gray-400 font-mono ml-1">/</span>
-              }
-              {dl.redtrack_lander_id && <span className="ml-2 text-green-600 font-medium">✓ RT#{dl.redtrack_lander_id}</span>}
-            </span>
-            <button onClick={() => handleDeploy(dl)} disabled={!!actionState[dl.id]}
-              className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors">
-              {actionState[dl.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
-            </button>
-            <button onClick={() => handlePublish(dl)}
-              className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors">
-              Publish to RT
-            </button>
-            <button onClick={() => handleRemoveLander(dl)}
-              className="px-2 py-0.5 bg-red-50 text-red-500 rounded hover:bg-red-100 transition-colors">✕</button>
-          </div>
-        ))}
+      {/* Expanded: all landers + add */}
+      {expanded && (
+        <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 space-y-2">
+          {landers.map(dl => (
+            <div key={dl.id} className="flex items-center gap-2 text-xs">
+              <span className="flex-1 text-gray-700 truncate">
+                <span className="font-medium">{dl.lander_name}</span>
+                <span className="text-gray-400 font-mono ml-1">
+                  {dl.subdirectory ? `/${dl.subdirectory}` : '/'}
+                </span>
+                {dl.redtrack_lander_id && (
+                  <span className="ml-2 text-green-600 font-medium">✓ RT</span>
+                )}
+              </span>
+              <button onClick={() => handleDeploy(dl)} disabled={!!actionState[dl.id]}
+                className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors">
+                {actionState[dl.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
+              </button>
+              <button onClick={() => setPublishingDl({ ...dl, domain: domain.domain })}
+                className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors">
+                Publish to RT
+              </button>
+              <button onClick={() => handleRemoveLander(dl)}
+                className="px-2 py-0.5 text-gray-400 hover:text-red-500 transition-colors">✕</button>
+            </div>
+          ))}
 
-        {showAddLander ? (
-          <AddLanderForm
-            domainId={domain.id}
-            localLanders={localLanders}
-            onSave={() => { setShowAddLander(false); loadLanders(); }}
-            onCancel={() => setShowAddLander(false)}
-          />
-        ) : (
-          <button onClick={() => setShowAddLander(true)}
-            className="text-xs text-indigo-600 hover:text-indigo-800 transition-colors">
-            + Add lander
-          </button>
-        )}
-      </div>
+          {showAddLander ? (
+            <AddLanderForm
+              domainId={domain.id}
+              localLanders={localLanders}
+              onSave={() => { setShowAddLander(false); loadLanders(); }}
+              onCancel={() => setShowAddLander(false)}
+            />
+          ) : (
+            <button onClick={() => setShowAddLander(true)}
+              className="text-xs text-indigo-600 hover:text-indigo-800 transition-colors">
+              + Add lander
+            </button>
+          )}
+        </div>
+      )}
 
       {publishingDl && (
         <PublishToRTModal
@@ -368,11 +437,16 @@ export default function FunnelDetailPage() {
   }
 
   async function handleRotateNow(domain) {
-    if (!confirm(`Rotate away from "${domain}"?\n\nThis will ban the current domain and activate the next standby domain, updating the RedTrack funnel template.`)) return;
+    if (!confirm(`Ban "${domain}" and rotate to the next standby lander?`)) return;
     setRotating(true);
     try {
       const res = await api.post('/rotate/trigger', { domain, reason: 'manual' });
-      alert(`Rotated successfully!\n${res.fromDomain} → ${res.toDomain}`);
+      const rtStatus = res.rtUpdated
+        ? 'RT stream updated.'
+        : res.rtWarning
+          ? `Warning: RT stream not updated — ${res.rtWarning}`
+          : 'RT stream not configured.';
+      alert(`Rotated: ${res.fromDomain} → ${res.toDomain}\n${rtStatus}`);
       load();
     } catch (err) {
       alert(`Rotation failed: ${err.message}`);
@@ -445,13 +519,13 @@ export default function FunnelDetailPage() {
         </div>
       )}
 
-      {/* Domains */}
+      {/* Lander Pool */}
       <section className="bg-white rounded-lg border border-gray-200 p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-sm font-semibold text-gray-700">Domains</h2>
+            <h2 className="text-sm font-semibold text-gray-700">Lander Pool</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              Publish a lander to RedTrack to link it to the funnel template above.
+              Backup landers ready to rotate in. Deploy + Publish to RT to make a domain rotation-ready.
             </p>
           </div>
           {!showAddDomain && (
@@ -471,6 +545,7 @@ export default function FunnelDetailPage() {
                 key={d.id}
                 domain={d}
                 localLanders={localLanders}
+                onRotate={handleRotateNow}
                 onDelete={deleteDomain}
                 onRefresh={load}
               />

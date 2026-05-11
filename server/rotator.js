@@ -9,41 +9,30 @@ async function updateRedTrackStream(streamId, oldLanderId, newLanderId) {
   const apiKey = process.env.REDTRACK_API_KEY;
   if (!apiKey || !streamId || !oldLanderId || !newLanderId) return;
 
-  try {
-    // RT has no GET /streams/:id — fetch list and find the stream
-    const { data: list } = await axios.get(
-      'https://api.redtrack.io/streams',
-      { params: { api_key: apiKey, template: true, per: 500 }, timeout: 10000 }
-    );
-    const items = (list.items || list || []).map(s => ({ ...s, id: s.id || s._id }));
-    const stream = items.find(s => String(s.id || s._id) === String(streamId));
-    if (!stream) {
-      console.error(`[rotator] Stream ${streamId} not found in RT list`);
-      return;
-    }
+  const { data: list } = await axios.get(
+    'https://api.redtrack.io/streams',
+    { params: { api_key: apiKey, template: true, per: 500 }, timeout: 10000 }
+  );
+  const items = (list.items || list || []).map(s => ({ ...s, id: s.id || s._id }));
+  const stream = items.find(s => String(s.id || s._id) === String(streamId));
+  if (!stream) throw new Error(`Stream ${streamId} not found in RT`);
 
-    let changed = false;
-    for (const landing of stream.landings || []) {
-      if (String(landing.id) === String(oldLanderId)) {
-        landing.id = newLanderId;
-        changed = true;
-      }
+  let changed = false;
+  for (const landing of stream.landings || []) {
+    if (String(landing.id) === String(oldLanderId)) {
+      landing.id = newLanderId;
+      changed = true;
     }
-
-    if (!changed) {
-      console.warn(`[rotator] Landing ${oldLanderId} not found in stream ${streamId} — no RT update`);
-      return;
-    }
-
-    await axios.put(
-      `https://api.redtrack.io/streams/${streamId}`,
-      stream,
-      { params: { api_key: apiKey }, timeout: 10000 }
-    );
-    console.log(`[rotator] RedTrack stream ${streamId} updated: ${oldLanderId} → ${newLanderId}`);
-  } catch (err) {
-    console.error('[rotator] RedTrack update failed:', err.response?.data || err.message);
   }
+
+  if (!changed) throw new Error(`Landing ${oldLanderId} not found in stream ${streamId}`);
+
+  await axios.put(
+    `https://api.redtrack.io/streams/${streamId}`,
+    stream,
+    { params: { api_key: apiKey }, timeout: 10000 }
+  );
+  console.log(`[rotator] RT stream ${streamId} updated: ${oldLanderId} → ${newLanderId}`);
 }
 
 async function rotate(bannedDomain, triggerSource = 'api') {
@@ -51,7 +40,6 @@ async function rotate(bannedDomain, triggerSource = 'api') {
   try {
     await client.query('BEGIN');
 
-    // Get domain + funnel campaign id in one query
     const { rows: [fromDomain] } = await client.query(
       `SELECT d.*, f.redtrack_stream_id
        FROM domains d
@@ -75,16 +63,16 @@ async function rotate(bannedDomain, triggerSource = 'api') {
       return { fromDomain: bannedDomain, toDomain: null, action: 'banned_only' };
     }
 
-    // Find next standby scoped to same funnel (or global pool if no funnel)
+    // Prefer standby domains that already have an RT lander published (ready for stream swap)
     const nextQuery = fromDomain.funnel_id
       ? await client.query(
           `SELECT * FROM domains WHERE status = 'standby' AND funnel_id = $1
-           ORDER BY priority DESC, added_at ASC LIMIT 1`,
+           ORDER BY (redtrack_lander_id IS NOT NULL) DESC, priority DESC, added_at ASC LIMIT 1`,
           [fromDomain.funnel_id]
         )
       : await client.query(
           `SELECT * FROM domains WHERE status = 'standby' AND funnel_id IS NULL
-           ORDER BY priority DESC, added_at ASC LIMIT 1`
+           ORDER BY (redtrack_lander_id IS NOT NULL) DESC, priority DESC, added_at ASC LIMIT 1`
         );
 
     const nextDomain = nextQuery.rows[0];
@@ -102,10 +90,12 @@ async function rotate(bannedDomain, triggerSource = 'api') {
     const landerId = nextDomain.lander_id || fromDomain.lander_id;
     let lander = null;
 
+    // Only deploy lander files if the next domain hasn't been published to RT yet
+    // (publishing to RT implies files are already deployed)
     if (landerId) {
       const { rows: [l] } = await client.query(`SELECT * FROM landers WHERE id = $1`, [landerId]);
-      if (l) {
-        lander = l;
+      lander = l || null;
+      if (l && !nextDomain.redtrack_lander_id) {
         await uploadLander(path.join(LANDERS_DIR, l.folder), nextDomain.doc_root);
       }
     }
@@ -123,18 +113,28 @@ async function rotate(bannedDomain, triggerSource = 'api') {
 
     await client.query('COMMIT');
 
-    // Best-effort: update RedTrack funnel template to swap the landing
-    updateRedTrackStream(
-      fromDomain.redtrack_stream_id,
-      fromDomain.redtrack_lander_id,
-      nextDomain.redtrack_lander_id
-    );
+    // RT stream swap — awaited, errors surface as a warning (DB already committed)
+    let rtWarning = null;
+    if (fromDomain.redtrack_stream_id && fromDomain.redtrack_lander_id && nextDomain.redtrack_lander_id) {
+      try {
+        await updateRedTrackStream(
+          fromDomain.redtrack_stream_id,
+          fromDomain.redtrack_lander_id,
+          nextDomain.redtrack_lander_id
+        );
+      } catch (err) {
+        rtWarning = err.message;
+        console.error('[rotator] RT stream update failed after DB rotation:', err.message);
+      }
+    }
 
     return {
       fromDomain: bannedDomain,
       toDomain: nextDomain.domain,
       lander: lander?.name || null,
       historyId: histRow.id,
+      rtUpdated: !rtWarning && !!(fromDomain.redtrack_stream_id && fromDomain.redtrack_lander_id && nextDomain.redtrack_lander_id),
+      rtWarning,
     };
   } catch (err) {
     await client.query('ROLLBACK');
