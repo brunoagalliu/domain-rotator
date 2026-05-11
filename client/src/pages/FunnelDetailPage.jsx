@@ -377,17 +377,21 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
 
 // ── Landings card (mirrors RT's Landings section) ─────────────────────────────
 function LandingsCard({ funnelId, landings, domains, rotating, onRotate, onRefresh }) {
-  const [settingActive, setSettingActive] = useState(null);
+  const [editingWeight, setEditingWeight] = useState(null); // { id, value }
+  const [savingWeight,  setSavingWeight]  = useState(null);
 
-  async function handleSetActive(rtLanderId) {
-    setSettingActive(rtLanderId);
+  async function handleWeightSave(rtLanderId) {
+    const newWeight = parseInt(editingWeight.value, 10);
+    if (isNaN(newWeight) || newWeight < 0) return;
+    setSavingWeight(rtLanderId);
     try {
-      await api.post(`/funnels/${funnelId}/set-active`, { rt_lander_id: rtLanderId });
+      await api.patch(`/funnels/${funnelId}/lander-weight`, { rt_lander_id: rtLanderId, weight: newWeight });
+      setEditingWeight(null);
       onRefresh();
     } catch (err) {
       alert(`Failed: ${err.message}`);
     } finally {
-      setSettingActive(null);
+      setSavingWeight(null);
     }
   }
 
@@ -415,6 +419,7 @@ function LandingsCard({ funnelId, landings, domains, rotating, onRotate, onRefre
           const linked = rtToDomain[String(l.id)];
           const weight = l.weight ?? 100;
           const isActive = weight >= 100;
+          const isEditing = editingWeight?.id === l.id;
           return (
             <div key={l.id}
               className={`flex items-start gap-3 p-3 rounded-lg border ${
@@ -440,26 +445,44 @@ function LandingsCard({ funnelId, landings, domains, rotating, onRotate, onRefre
                         {rotating ? 'Rotating...' : 'Rotate Now'}
                       </button>
                     )}
-                    {!isActive && (
-                      <button
-                        onClick={() => handleSetActive(l.id)}
-                        disabled={!!settingActive}
-                        className="text-xs px-2 py-0.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 disabled:opacity-50 transition-colors"
-                      >
-                        {settingActive === l.id ? 'Setting...' : 'Set Active'}
-                      </button>
-                    )}
                   </div>
                 ) : (
                   <p className="text-xs text-gray-400 mt-1 italic">Not linked to a domain</p>
                 )}
               </div>
-              <div className="shrink-0">
-                <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${
-                  isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                }`}>
-                  {weight}
-                </span>
+              {/* Editable weight */}
+              <div className="shrink-0 flex items-center gap-1">
+                {isEditing ? (
+                  <>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editingWeight.value}
+                      onChange={e => setEditingWeight(w => ({ ...w, value: e.target.value }))}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') handleWeightSave(l.id);
+                        if (e.key === 'Escape') setEditingWeight(null);
+                      }}
+                      autoFocus
+                      className="w-16 text-xs border border-indigo-300 rounded px-1.5 py-0.5 text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <button onClick={() => handleWeightSave(l.id)} disabled={savingWeight === l.id}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-50">
+                      {savingWeight === l.id ? '...' : '✓'}
+                    </button>
+                    <button onClick={() => setEditingWeight(null)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setEditingWeight({ id: l.id, value: String(weight) })}
+                    title="Click to edit weight"
+                    className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold hover:ring-2 hover:ring-indigo-300 transition-all cursor-pointer ${
+                      isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                    }`}
+                  >
+                    {weight}
+                  </button>
+                )}
               </div>
             </div>
           );

@@ -161,11 +161,11 @@ router.post('/import', async (req, res) => {
   }
 });
 
-// Set one lander as the sole active (weight 100) in the RT stream, demote all others to weight 1
-router.post('/:id/set-active', async (req, res) => {
+// Update a single lander's weight in the RT stream
+router.patch('/:id/lander-weight', async (req, res) => {
   const axios = require('axios');
-  const { rt_lander_id } = req.body;
-  if (!rt_lander_id) return res.status(400).json({ message: 'rt_lander_id required.' });
+  const { rt_lander_id, weight } = req.body;
+  if (!rt_lander_id || weight == null) return res.status(400).json({ message: 'rt_lander_id and weight required.' });
 
   try {
     const { rows: [funnel] } = await pool.query(`SELECT * FROM funnels WHERE id = $1`, [req.params.id]);
@@ -184,25 +184,13 @@ router.post('/:id/set-active', async (req, res) => {
     if (!stream) return res.status(404).json({ message: 'RT stream not found.' });
 
     const updatedLandings = (stream.landings || []).map(l =>
-      String(l.id) === String(rt_lander_id) ? { ...l, weight: 100 } : { ...l, weight: 1 }
+      String(l.id) === String(rt_lander_id) ? { ...l, weight: Number(weight) } : l
     );
 
     await axios.put(
       `https://api.redtrack.io/streams/${funnel.redtrack_stream_id}`,
       { ...stream, landings: updatedLandings },
       { params: { api_key: apiKey }, timeout: 10000 }
-    );
-
-    // Sync DB status to match
-    await pool.query(
-      `UPDATE domains SET status = 'active'
-       WHERE redtrack_lander_id = $1 AND funnel_id = $2 AND status != 'banned'`,
-      [String(rt_lander_id), req.params.id]
-    );
-    await pool.query(
-      `UPDATE domains SET status = 'standby'
-       WHERE (redtrack_lander_id IS DISTINCT FROM $1) AND funnel_id = $2 AND status = 'active'`,
-      [String(rt_lander_id), req.params.id]
     );
 
     res.json({ ok: true });
