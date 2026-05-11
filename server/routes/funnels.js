@@ -200,6 +200,14 @@ router.patch('/:id/lander-weight', async (req, res) => {
       { params: { api_key: apiKey }, timeout: 10000 }
     );
 
+    // Sync DB status to match the new weight
+    const newStatus = Number(weight) >= 1000 ? 'active' : 'standby';
+    await pool.query(
+      `UPDATE domains SET status = $1
+       WHERE redtrack_lander_id = $2 AND funnel_id = $3 AND status != 'banned'`,
+      [newStatus, String(rt_lander_id), req.params.id]
+    );
+
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: err.response?.data?.error || err.message });
