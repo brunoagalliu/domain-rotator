@@ -14,6 +14,7 @@ function RequireAuth({ children }) {
 
 function MonitorBadge() {
   const [status, setStatus] = useState(null);
+  const [toggling, setToggling] = useState(false);
 
   useEffect(() => {
     const load = () => api.get('/monitor/status').then(setStatus).catch(() => {});
@@ -24,18 +25,47 @@ function MonitorBadge() {
 
   if (!status) return null;
 
-  const isLive = status.running && status.configured;
-  const dotColor = isLive ? 'bg-green-400' : status.configured ? 'bg-yellow-400' : 'bg-gray-300';
-  const label    = isLive ? 'Monitor live' : status.configured ? 'Monitor starting' : 'Monitor off';
-  const lastPoll = status.lastPoll
-    ? new Date(status.lastPoll).toLocaleTimeString()
-    : null;
+  const active = status.running && status.configured && !status.paused;
+  const dotColor = active ? 'bg-green-400' : status.configured ? 'bg-yellow-400' : 'bg-gray-300';
+  const label = active ? 'Monitor live' : status.paused ? 'Monitor paused' : status.configured ? 'Monitor starting' : 'Monitor off';
+  const lastPoll = status.lastPoll ? new Date(status.lastPoll).toLocaleTimeString() : null;
+
+  const handleToggle = async () => {
+    if (!status.configured || toggling) return;
+    setToggling(true);
+    try {
+      const next = await api.post('/monitor/toggle');
+      setStatus(next);
+    } catch (e) {
+      // ignore
+    } finally {
+      setToggling(false);
+    }
+  };
 
   return (
     <div className="mt-4 px-3 py-2 rounded-md bg-gray-50 border border-gray-100">
-      <div className="flex items-center gap-2">
-        <span className={`w-2 h-2 rounded-full ${dotColor} shrink-0`} />
-        <span className="text-xs text-gray-600 font-medium">{label}</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`w-2 h-2 rounded-full ${dotColor} shrink-0`} />
+          <span className="text-xs text-gray-600 font-medium truncate">{label}</span>
+        </div>
+        {status.configured && (
+          <button
+            onClick={handleToggle}
+            disabled={toggling}
+            title={status.paused ? 'Resume auto-rotation' : 'Pause auto-rotation'}
+            className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+              !status.paused ? 'bg-green-500' : 'bg-gray-300'
+            }`}
+          >
+            <span
+              className={`inline-block h-3 w-3 rounded-full bg-white shadow transform transition-transform duration-200 ${
+                !status.paused ? 'translate-x-3' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        )}
       </div>
       {lastPoll && (
         <p className="text-xs text-gray-400 mt-0.5 pl-4">Last poll {lastPoll}</p>

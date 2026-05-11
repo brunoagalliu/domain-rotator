@@ -8,6 +8,7 @@ const POLL_MS = 60 * 1000;
 const state = {
   running:       false,
   configured:    false,
+  paused:        false,
   lastPoll:      null,
   lastError:     null,
   lastDetection: null, // { domain, at, threats }
@@ -15,7 +16,7 @@ const state = {
 
 async function pollOnce() {
   const apiKey = process.env.DETECTION_API_KEY;
-  if (!apiKey) return;
+  if (!apiKey || state.paused) return;
 
   const { data: scans } = await axios.get(`${DETECTION_URL}/api/scans`, {
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -83,10 +84,15 @@ function start() {
   console.log('[monitor] Started — polling every 60s');
 }
 
+function setPaused(paused) {
+  state.paused = paused;
+}
+
 function getState() {
   return {
     running:             state.running,
     configured:          state.configured,
+    paused:              state.paused,
     lastPoll:            state.lastPoll,
     lastError:           state.lastError,
     lastDetection:       state.lastDetection,
@@ -94,4 +100,4 @@ function getState() {
   };
 }
 
-module.exports = { start, getState };
+module.exports = { start, getState, setPaused };

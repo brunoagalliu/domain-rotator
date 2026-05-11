@@ -271,13 +271,16 @@ router.delete('/:id/stream-lander/:rtLanderId', async (req, res) => {
       l => String(l.id) !== String(req.params.rtLanderId)
     );
 
+    const patch = { ...stream, landings: updatedLandings };
+    if (updatedLandings.length === 0) patch.direct = true;
+
     await axios.put(
       `https://api.redtrack.io/streams/${funnel.redtrack_stream_id}`,
-      { ...stream, landings: updatedLandings },
+      patch,
       { params: { api_key: apiKey }, timeout: 10000 }
     );
 
-    res.json({ ok: true });
+    res.json({ ok: true, direct: updatedLandings.length === 0 });
   } catch (err) {
     res.status(500).json({ message: err.response?.data?.error || err.message });
   }
