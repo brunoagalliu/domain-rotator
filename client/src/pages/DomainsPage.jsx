@@ -237,7 +237,7 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
   if (landers === null) {
     return (
       <tr>
-        <td colSpan={8} className="px-8 py-2 bg-gray-50 text-xs text-gray-400">Loading landers…</td>
+        <td colSpan={9} className="px-8 py-2 bg-gray-50 text-xs text-gray-400">Loading landers…</td>
       </tr>
     );
   }
@@ -245,7 +245,7 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
   return (
     <>
     <tr>
-      <td colSpan={8} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
+      <td colSpan={9} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
         <div className="px-8 py-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Landers</span>
@@ -472,6 +472,7 @@ export default function DomainsPage() {
               <th className="w-6 px-4 py-3"></th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Domain</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Threats</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Lander</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Priority</th>
@@ -481,9 +482,9 @@ export default function DomainsPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={8} className="text-center py-10 text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={9} className="text-center py-10 text-gray-400">Loading...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={8} className="text-center py-10 text-gray-400">No domains found</td></tr>
+              <tr><td colSpan={9} className="text-center py-10 text-gray-400">No domains found</td></tr>
             ) : filtered.map(d => (
               <>
                 <tr key={d.id} className="hover:bg-gray-50 transition-colors">
@@ -506,6 +507,21 @@ export default function DomainsPage() {
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[d.status]}`}>
                       {d.status}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {(() => {
+                      let threats = [];
+                      try { threats = d.threat_types ? JSON.parse(d.threat_types) : []; } catch {}
+                      return threats.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {threats.map(t => (
+                            <span key={t} className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                              {t.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+                            </span>
+                          ))}
+                        </div>
+                      ) : <span className="text-gray-300 text-xs">—</span>;
+                    })()}
                   </td>
                   <td className="px-4 py-3">
                     <select

@@ -31,11 +31,19 @@ async function pollOnce() {
 
   for (const scan of flagged) {
     const { rows: [domain] } = await pool.query(
-      `SELECT id FROM domains WHERE domain = $1 AND status = 'active'`,
+      `SELECT id, status FROM domains WHERE domain = $1`,
       [scan.domain]
     );
 
     if (!domain) continue;
+
+    // Always persist flagged info so it shows in the UI
+    await pool.query(
+      `UPDATE domains SET flagged_at = $1, threat_types = $2 WHERE id = $3`,
+      [new Date(scan.scan_date), JSON.stringify(scan.threat_types || []), domain.id]
+    );
+
+    if (domain.status !== 'active') continue;
 
     console.log(`[monitor] Flagged: ${scan.domain} — triggering rotation`);
     state.lastDetection = {
