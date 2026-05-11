@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api, uploadLanderFile } from '../lib/api';
 
+const CATEGORIES = ['Auto', 'Cloud'];
+
+const CATEGORY_COLORS = {
+  Auto:  'bg-blue-100 text-blue-700',
+  Cloud: 'bg-purple-100 text-purple-700',
+};
+
 export default function LandersPage() {
   const [landers,   setLanders]   = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -36,6 +43,15 @@ export default function LandersPage() {
       setError(err.message);
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleCategoryChange(id, category) {
+    try {
+      const updated = await api.patch(`/landers/${id}`, { category: category || null });
+      setLanders(prev => prev.map(l => l.id === id ? { ...l, category: updated.category } : l));
+    } catch (err) {
+      setError(err.message);
     }
   }
 
@@ -92,6 +108,7 @@ export default function LandersPage() {
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Folder</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Uploaded</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Actions</th>
@@ -100,13 +117,25 @@ export default function LandersPage() {
           <tbody className="divide-y divide-gray-100">
             {landers.length === 0 ? (
               <tr>
-                <td colSpan={4} className="text-center py-10 text-gray-400">
+                <td colSpan={5} className="text-center py-10 text-gray-400">
                   No landers uploaded yet
                 </td>
               </tr>
             ) : landers.map(l => (
               <tr key={l.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-4 py-3 font-medium text-gray-800">{l.name}</td>
+                <td className="px-4 py-3">
+                  <select
+                    value={l.category || ''}
+                    onChange={e => handleCategoryChange(l.id, e.target.value)}
+                    className={`text-xs px-2 py-1 rounded border-0 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+                      l.category ? CATEGORY_COLORS[l.category] : 'bg-gray-100 text-gray-400'
+                    }`}
+                  >
+                    <option value="">— none —</option>
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </td>
                 <td className="px-4 py-3 font-mono text-xs text-gray-500">landers/{l.folder}/</td>
                 <td className="px-4 py-3 text-gray-400 text-xs">
                   {new Date(l.created_at).toLocaleString()}

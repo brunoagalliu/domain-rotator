@@ -14,6 +14,8 @@ async function init() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    ALTER TABLE landers ADD COLUMN IF NOT EXISTS category TEXT;
+
     CREATE TABLE IF NOT EXISTS funnels (
       id                   SERIAL PRIMARY KEY,
       name                 TEXT NOT NULL,

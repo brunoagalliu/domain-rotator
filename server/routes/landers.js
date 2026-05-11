@@ -67,6 +67,20 @@ router.post('/', upload.single('file'), async (req, res) => {
   }
 });
 
+router.patch('/:id', async (req, res) => {
+  const { category } = req.body;
+  try {
+    const { rows: [row] } = await pool.query(
+      `UPDATE landers SET category = $1 WHERE id = $2 RETURNING *`,
+      [category || null, req.params.id]
+    );
+    if (!row) return res.status(404).json({ message: 'Not found.' });
+    res.json(row);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   try {
     const { rows: [lander] } = await pool.query(`SELECT * FROM landers WHERE id = $1`, [req.params.id]);
