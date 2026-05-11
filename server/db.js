@@ -84,6 +84,7 @@ async function init() {
     ALTER TABLE domains ADD COLUMN IF NOT EXISTS role               TEXT NOT NULL DEFAULT 'backup';
     ALTER TABLE domains ADD COLUMN IF NOT EXISTS redtrack_lander_id TEXT;
     ALTER TABLE rotation_history ADD COLUMN IF NOT EXISTS funnel_id INTEGER REFERENCES funnels(id) ON DELETE SET NULL;
+    ALTER TABLE rotation_history ALTER COLUMN to_domain DROP NOT NULL;
   `).catch(() => {});
 
   await pool.query(`

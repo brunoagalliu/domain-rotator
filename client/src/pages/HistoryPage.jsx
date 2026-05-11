@@ -64,9 +64,11 @@ export default function HistoryPage() {
                   {new Date(h.rotated_at).toLocaleString()}
                 </td>
                 <td className="px-4 py-3 font-mono text-xs text-red-500">{h.from_domain || '—'}</td>
-                <td className="px-4 py-3 font-mono text-xs text-green-600">{h.to_domain}</td>
+                <td className="px-4 py-3 font-mono text-xs text-green-600">
+                  {h.to_domain || <span className="text-red-400 not-italic font-sans">banned</span>}
+                </td>
                 <td className="px-4 py-3 text-gray-500 text-xs">{h.lander_name || '—'}</td>
-                <td className="px-4 py-3 text-gray-500 text-xs capitalize">{h.trigger_source}</td>
+                <td className="px-4 py-3 text-gray-500 text-xs capitalize">{h.trigger_source?.replace(/_/g, ' ')}</td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[h.status]}`}>
                     {h.status}

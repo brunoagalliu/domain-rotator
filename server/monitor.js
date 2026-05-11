@@ -60,6 +60,19 @@ async function cleanupBannedFromStreams() {
       patch,
       { params: { api_key: rtApiKey }, timeout: 10000 }
     );
+
+    // Log each removed domain to history
+    const removed = byStream[streamId];
+    const funnelRow = banned.find(d => String(d.redtrack_stream_id) === streamId);
+    for (const landerId of removed) {
+      const d = banned.find(b => String(b.redtrack_lander_id) === landerId && String(b.redtrack_stream_id) === streamId);
+      if (!d) continue;
+      await pool.query(
+        `INSERT INTO rotation_history (funnel_id, from_domain, to_domain, trigger_source, status)
+         VALUES ($1, $2, NULL, 'auto_ban', 'success')`,
+        [funnelRow?.funnel_id || null, d.domain]
+      ).catch(() => {});
+    }
     console.log(`[monitor] Cleanup: removed ${before - updatedLandings.length} banned lander(s) from stream ${streamId}`);
   }
 }
@@ -106,6 +119,11 @@ async function pollOnce() {
           `UPDATE domains SET status = 'banned', banned_at = NOW() WHERE id = $1`,
           [domain.id]
         );
+        await pool.query(
+          `INSERT INTO rotation_history (funnel_id, from_domain, to_domain, trigger_source, status)
+           VALUES ($1, $2, NULL, 'auto_ban', 'success')`,
+          [domain.funnel_id || null, scan.domain]
+        ).catch(() => {});
       }
       if (domain.funnel_id && domain.redtrack_lander_id) {
         try {
