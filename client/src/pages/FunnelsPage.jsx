@@ -159,11 +159,27 @@ function ItemRow({ index, item, rtOptions, onChange, onRemove }) {
   );
 }
 
-function CreateFunnelModal({ onSave, onClose }) {
-  const [title,      setTitle]      = useState('');
-  const [type,       setType]       = useState('single_landing');
-  const [landings,   setLandings]   = useState([{ id: '', name: '', weight: 100 }]);
-  const [offers,     setOffers]     = useState([{ id: '', name: '', weight: 100 }]);
+function FunnelModal({ stream, onSave, onClose }) {
+  const isEdit = !!stream;
+
+  function inferType(s) {
+    if (!s?.landings?.length) return 'offers_only';
+    if (s.landings.length === 1) return 'single_landing';
+    return 'multi_landing';
+  }
+
+  const [title,      setTitle]      = useState(stream?.title || '');
+  const [type,       setType]       = useState(isEdit ? inferType(stream) : 'single_landing');
+  const [landings,   setLandings]   = useState(
+    stream?.landings?.length
+      ? stream.landings.map(l => ({ id: String(l.id), name: l.name || '', weight: l.weight ?? 100 }))
+      : [{ id: '', name: '', weight: 100 }]
+  );
+  const [offers,     setOffers]     = useState(
+    stream?.offers?.length
+      ? stream.offers.map(o => ({ id: String(o.id), name: o.name || '', weight: o.weight ?? 100 }))
+      : [{ id: '', name: '', weight: 100 }]
+  );
   const [rtLandings, setRtLandings] = useState([]);
   const [rtOffers,   setRtOffers]   = useState([]);
   const [loadingRt,  setLoadingRt]  = useState(true);
@@ -197,17 +213,23 @@ function CreateFunnelModal({ onSave, onClose }) {
     setSaving(true);
     setError('');
     try {
-      const stream = await api.post('/redtrack/streams', {
+      const payload = {
         title: title.trim(),
         type,
         landings: landings.filter(l => l.id).map(({ id, weight }) => ({ id, weight })),
         offers:   validOffers.map(({ id, weight }) => ({ id, weight })),
-      });
-      const funnel = await api.post('/funnels/by-stream', {
-        redtrack_stream_id: stream.id,
-        title: stream.title,
-      });
-      onSave(funnel);
+      };
+      if (isEdit) {
+        const updated = await api.put(`/redtrack/streams/${stream.id}`, payload);
+        onSave(updated);
+      } else {
+        const created = await api.post('/redtrack/streams', payload);
+        const funnel = await api.post('/funnels/by-stream', {
+          redtrack_stream_id: created.id,
+          title: created.title,
+        });
+        onSave(funnel);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -237,7 +259,7 @@ function CreateFunnelModal({ onSave, onClose }) {
         <div className="overflow-y-auto flex-1">
           {/* Top section */}
           <div className="px-6 py-5 border-b border-gray-100 space-y-4">
-            <h3 className="text-base font-semibold text-gray-800">New Funnel</h3>
+            <h3 className="text-base font-semibold text-gray-800">{isEdit ? 'Edit Funnel' : 'New Funnel'}</h3>
 
             <div>
               <input
@@ -356,8 +378,9 @@ export default function FunnelsPage() {
   const [streams, setStreams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
-  const [managing, setManaging]   = useState(null);
-  const [showCreate, setShowCreate] = useState(false);
+  const [managing, setManaging]       = useState(null);
+  const [showCreate, setShowCreate]   = useState(false);
+  const [editingStream, setEditingStream] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -430,6 +453,12 @@ export default function FunnelsPage() {
                 </span>
               </div>
               <button
+                onClick={() => setEditingStream(s)}
+                className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded hover:bg-gray-50 transition-colors font-medium shrink-0"
+              >
+                Edit
+              </button>
+              <button
                 onClick={() => handleManage(s)}
                 disabled={managing === s.id}
                 className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors font-medium shrink-0"
@@ -442,9 +471,20 @@ export default function FunnelsPage() {
       )}
 
       {showCreate && (
-        <CreateFunnelModal
+        <FunnelModal
           onSave={funnel => { setShowCreate(false); navigate(`/funnels/${funnel.id}`); }}
           onClose={() => setShowCreate(false)}
+        />
+      )}
+
+      {editingStream && (
+        <FunnelModal
+          stream={editingStream}
+          onSave={updated => {
+            setStreams(prev => prev.map(s => s.id === updated.id ? updated : s));
+            setEditingStream(null);
+          }}
+          onClose={() => setEditingStream(null)}
         />
       )}
     </div>
