@@ -161,6 +161,56 @@ router.post('/import', async (req, res) => {
   }
 });
 
+// Set one lander as the sole active (weight 100) in the RT stream, demote all others to weight 1
+router.post('/:id/set-active', async (req, res) => {
+  const axios = require('axios');
+  const { rt_lander_id } = req.body;
+  if (!rt_lander_id) return res.status(400).json({ message: 'rt_lander_id required.' });
+
+  try {
+    const { rows: [funnel] } = await pool.query(`SELECT * FROM funnels WHERE id = $1`, [req.params.id]);
+    if (!funnel) return res.status(404).json({ message: 'Funnel not found.' });
+    if (!funnel.redtrack_stream_id) return res.status(400).json({ message: 'Funnel not linked to RT stream.' });
+
+    const apiKey = process.env.REDTRACK_API_KEY;
+    if (!apiKey) return res.status(500).json({ message: 'REDTRACK_API_KEY not configured.' });
+
+    const { data: list } = await axios.get('https://api.redtrack.io/streams', {
+      params: { api_key: apiKey, template: true, per: 500 },
+      timeout: 10000,
+    });
+    const items = (list.items || list || []).map(s => ({ ...s, id: s.id || s._id }));
+    const stream = items.find(s => String(s.id) === String(funnel.redtrack_stream_id));
+    if (!stream) return res.status(404).json({ message: 'RT stream not found.' });
+
+    const updatedLandings = (stream.landings || []).map(l =>
+      String(l.id) === String(rt_lander_id) ? { ...l, weight: 100 } : { ...l, weight: 1 }
+    );
+
+    await axios.put(
+      `https://api.redtrack.io/streams/${funnel.redtrack_stream_id}`,
+      { ...stream, landings: updatedLandings },
+      { params: { api_key: apiKey }, timeout: 10000 }
+    );
+
+    // Sync DB status to match
+    await pool.query(
+      `UPDATE domains SET status = 'active'
+       WHERE redtrack_lander_id = $1 AND funnel_id = $2 AND status != 'banned'`,
+      [String(rt_lander_id), req.params.id]
+    );
+    await pool.query(
+      `UPDATE domains SET status = 'standby'
+       WHERE (redtrack_lander_id IS DISTINCT FROM $1) AND funnel_id = $2 AND status = 'active'`,
+      [String(rt_lander_id), req.params.id]
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.response?.data?.error || err.message });
+  }
+});
+
 // Offers
 router.post('/:id/offers', async (req, res) => {
   const { redtrack_offer_id, offer_title, weight = 100 } = req.body;

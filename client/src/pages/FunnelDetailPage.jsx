@@ -376,7 +376,21 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
 }
 
 // ── Landings card (mirrors RT's Landings section) ─────────────────────────────
-function LandingsCard({ landings, domains, rotating, onRotate }) {
+function LandingsCard({ funnelId, landings, domains, rotating, onRotate, onRefresh }) {
+  const [settingActive, setSettingActive] = useState(null);
+
+  async function handleSetActive(rtLanderId) {
+    setSettingActive(rtLanderId);
+    try {
+      await api.post(`/funnels/${funnelId}/set-active`, { rt_lander_id: rtLanderId });
+      onRefresh();
+    } catch (err) {
+      alert(`Failed: ${err.message}`);
+    } finally {
+      setSettingActive(null);
+    }
+  }
+
   // Map redtrack_lander_id → domain for quick lookup
   const rtToDomain = {};
   for (const d of domains) {
@@ -424,6 +438,15 @@ function LandingsCard({ landings, domains, rotating, onRotate }) {
                         className="text-xs px-2 py-0.5 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50 transition-colors font-medium"
                       >
                         {rotating ? 'Rotating...' : 'Rotate Now'}
+                      </button>
+                    )}
+                    {!isActive && (
+                      <button
+                        onClick={() => handleSetActive(l.id)}
+                        disabled={!!settingActive}
+                        className="text-xs px-2 py-0.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 disabled:opacity-50 transition-colors"
+                      >
+                        {settingActive === l.id ? 'Setting...' : 'Set Active'}
                       </button>
                     )}
                   </div>
@@ -587,10 +610,12 @@ export default function FunnelDetailPage() {
       {funnel.redtrack_stream_id && !streamError && (
         <div className="grid grid-cols-2 gap-4">
           <LandingsCard
+            funnelId={id}
             landings={streamLandings}
             domains={funnel.domains}
             rotating={rotating}
             onRotate={handleRotateNow}
+            onRefresh={load}
           />
           <OffersCard offers={streamOffers} />
         </div>
