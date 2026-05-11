@@ -644,9 +644,20 @@ export default function FunnelDetailPage() {
           </div>
         </div>
         {funnel.redtrack_stream_id && (
-          <button onClick={load} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded hover:bg-gray-50 transition-colors">
-            Refresh from RT
-          </button>
+          <div className="flex gap-2">
+            <button onClick={load} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded hover:bg-gray-50 transition-colors">
+              Refresh from RT
+            </button>
+            <button onClick={async () => {
+              try {
+                const r = await api.post(`/funnels/${id}/sync-from-rt`);
+                alert(`Synced — ${r.updated} domain(s) updated.`);
+                load();
+              } catch (err) { alert(`Sync failed: ${err.message}`); }
+            }} className="text-xs px-3 py-1.5 border border-indigo-200 text-indigo-600 rounded hover:bg-indigo-50 transition-colors">
+              Sync DB from RT
+            </button>
+          </div>
         )}
       </div>
 
