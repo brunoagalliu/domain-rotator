@@ -140,6 +140,55 @@ const STATUS_DOT = {
   banned:  'bg-red-400',
 };
 
+// ── Link RT Lander inline picker ──────────────────────────────────────────────
+function LinkRTPanel({ domainId, dl, onSave, onCancel }) {
+  const [rtLandings, setRtLandings] = useState([]);
+  const [selected,   setSelected]   = useState('');
+  const [loading,    setLoading]    = useState(true);
+  const [saving,     setSaving]     = useState(false);
+
+  useEffect(() => {
+    api.get('/redtrack/landings').then(data => {
+      setRtLandings(Array.isArray(data) ? data : []);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  async function handleSave() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      await api.patch(`/domains/${domainId}/landers/${dl.id}`, { redtrack_lander_id: selected });
+      onSave();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <span className="text-xs text-gray-400">Loading RT landings...</span>;
+
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      <select
+        value={selected}
+        onChange={e => setSelected(e.target.value)}
+        className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-48"
+      >
+        <option value="">Select RT lander...</option>
+        {rtLandings.map(l => (
+          <option key={l.id} value={l.id}>{l.title}</option>
+        ))}
+      </select>
+      <button onClick={handleSave} disabled={!selected || saving}
+        className="text-xs px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+        {saving ? '...' : 'Link'}
+      </button>
+      <button onClick={onCancel} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+    </div>
+  );
+}
+
 // ── Domain row — flat lander pool entry ───────────────────────────────────────
 function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
   const [landers, setLanders]             = useState([]);
@@ -147,6 +196,7 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
   const [showAddLander, setShowAddLander] = useState(false);
   const [actionState, setActionState]     = useState({});
   const [publishingDl, setPublishingDl]   = useState(null);
+  const [linkingDl,    setLinkingDl]      = useState(null);
 
   const loadLanders = useCallback(async () => {
     const rows = await api.get(`/domains/${domain.id}/landers`).catch(() => []);
@@ -217,16 +267,29 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
           </button>
         )}
         {domain.status === 'standby' && primaryLander && !primaryLander.redtrack_lander_id && (
-          <>
-            <button onClick={() => handleDeploy(primaryLander)} disabled={!!actionState[primaryLander.id]}
-              className="text-xs px-2 py-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors shrink-0">
-              {actionState[primaryLander.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
-            </button>
-            <button onClick={() => setPublishingDl({ ...primaryLander, domain: domain.domain })}
-              className="text-xs px-2 py-1.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors shrink-0">
-              Publish to RT
-            </button>
-          </>
+          linkingDl?.id === primaryLander.id ? (
+            <LinkRTPanel
+              domainId={domain.id}
+              dl={primaryLander}
+              onSave={() => { setLinkingDl(null); loadLanders(); onRefresh(); }}
+              onCancel={() => setLinkingDl(null)}
+            />
+          ) : (
+            <>
+              <button onClick={() => handleDeploy(primaryLander)} disabled={!!actionState[primaryLander.id]}
+                className="text-xs px-2 py-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors shrink-0">
+                {actionState[primaryLander.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
+              </button>
+              <button onClick={() => setPublishingDl({ ...primaryLander, domain: domain.domain })}
+                className="text-xs px-2 py-1.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors shrink-0">
+                Publish to RT
+              </button>
+              <button onClick={() => setLinkingDl(primaryLander)}
+                className="text-xs px-2 py-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors shrink-0">
+                Link RT
+              </button>
+            </>
+          )
         )}
 
         {/* Expand toggle */}
@@ -248,26 +311,45 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
       {expanded && (
         <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 space-y-2">
           {landers.map(dl => (
-            <div key={dl.id} className="flex items-center gap-2 text-xs">
-              <span className="flex-1 text-gray-700 truncate">
-                <span className="font-medium">{dl.lander_name}</span>
-                <span className="text-gray-400 font-mono ml-1">
-                  {dl.subdirectory ? `/${dl.subdirectory}` : '/'}
+            <div key={dl.id} className="space-y-1">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="flex-1 text-gray-700 truncate">
+                  <span className="font-medium">{dl.lander_name}</span>
+                  <span className="text-gray-400 font-mono ml-1">
+                    {dl.subdirectory ? `/${dl.subdirectory}` : '/'}
+                  </span>
+                  {dl.redtrack_lander_id
+                    ? <span className="ml-2 text-green-600 font-medium">✓ RT</span>
+                    : <span className="ml-2 text-amber-500">not in RT</span>
+                  }
                 </span>
-                {dl.redtrack_lander_id && (
-                  <span className="ml-2 text-green-600 font-medium">✓ RT</span>
+                <button onClick={() => handleDeploy(dl)} disabled={!!actionState[dl.id]}
+                  className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors">
+                  {actionState[dl.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
+                </button>
+                {!dl.redtrack_lander_id && (
+                  <>
+                    <button onClick={() => setPublishingDl({ ...dl, domain: domain.domain })}
+                      className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors">
+                      Publish to RT
+                    </button>
+                    <button onClick={() => setLinkingDl(linkingDl?.id === dl.id ? null : dl)}
+                      className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors">
+                      Link RT
+                    </button>
+                  </>
                 )}
-              </span>
-              <button onClick={() => handleDeploy(dl)} disabled={!!actionState[dl.id]}
-                className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors">
-                {actionState[dl.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
-              </button>
-              <button onClick={() => setPublishingDl({ ...dl, domain: domain.domain })}
-                className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors">
-                Publish to RT
-              </button>
-              <button onClick={() => handleRemoveLander(dl)}
-                className="px-2 py-0.5 text-gray-400 hover:text-red-500 transition-colors">✕</button>
+                <button onClick={() => handleRemoveLander(dl)}
+                  className="px-2 py-0.5 text-gray-400 hover:text-red-500 transition-colors">✕</button>
+              </div>
+              {linkingDl?.id === dl.id && (
+                <LinkRTPanel
+                  domainId={domain.id}
+                  dl={dl}
+                  onSave={() => { setLinkingDl(null); loadLanders(); onRefresh(); }}
+                  onCancel={() => setLinkingDl(null)}
+                />
+              )}
             </div>
           ))}
 

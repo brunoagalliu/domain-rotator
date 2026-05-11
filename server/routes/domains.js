@@ -148,6 +148,28 @@ router.post('/:id/landers', async (req, res) => {
   }
 });
 
+router.patch('/:id/landers/:dlId', async (req, res) => {
+  const { redtrack_lander_id } = req.body;
+  try {
+    const { rows: [dl] } = await pool.query(
+      `UPDATE domain_landers SET redtrack_lander_id = $1 WHERE id = $2 AND domain_id = $3 RETURNING *`,
+      [redtrack_lander_id || null, req.params.dlId, req.params.id]
+    );
+    if (!dl) return res.status(404).json({ message: 'Not found.' });
+
+    // If root path, keep the domain's own redtrack_lander_id in sync
+    if (!dl.subdirectory) {
+      await pool.query(
+        `UPDATE domains SET redtrack_lander_id = $1 WHERE id = $2`,
+        [redtrack_lander_id || null, req.params.id]
+      );
+    }
+    res.json(dl);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 router.delete('/:id/landers/:dlId', async (req, res) => {
   try {
     await pool.query(
