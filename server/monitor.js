@@ -30,6 +30,8 @@ async function pollOnce() {
   state.lastPoll  = new Date();
   state.lastError = null;
 
+  console.log(`[monitor] Got ${Array.isArray(scans) ? scans.length : '?'} scans, sample:`, JSON.stringify(Array.isArray(scans) ? scans.slice(0, 2) : scans).slice(0, 300));
+
   const flagged = scans.filter(s => s.is_safe === 0 && new Date(s.scan_date) > since);
 
   for (const scan of flagged) {
