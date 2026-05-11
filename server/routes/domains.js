@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const { pool } = require('../db');
 const { uploadLander } = require('../cpanel');
+const { ensureLanderInStream } = require('../rotator');
 
 const LANDERS_DIR = path.join(__dirname, '../../landers');
 
@@ -166,6 +167,23 @@ router.patch('/:id/landers/:dlId', async (req, res) => {
         [redtrack_lander_id || null, req.params.id]
       );
     }
+
+    // Auto-add to RT stream at appropriate weight if funnel has a stream
+    if (redtrack_lander_id) {
+      const { rows: [domainRow] } = await pool.query(
+        `SELECT d.status, f.redtrack_stream_id
+         FROM domains d
+         LEFT JOIN funnels f ON d.funnel_id = f.id
+         WHERE d.id = $1`,
+        [req.params.id]
+      );
+      if (domainRow?.redtrack_stream_id) {
+        const weight = domainRow.status === 'active' ? 100 : 1;
+        ensureLanderInStream(domainRow.redtrack_stream_id, redtrack_lander_id, weight)
+          .catch(err => console.error('[link] ensureLanderInStream failed:', err.message));
+      }
+    }
+
     res.json(dl);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -249,6 +267,20 @@ router.post('/:id/landers/:dlId/publish', async (req, res) => {
         `UPDATE domains SET redtrack_lander_id = $1 WHERE id = $2`,
         [rtLander.id, req.params.id]
       );
+    }
+
+    // Auto-add to RT stream at appropriate weight if funnel has a stream
+    const { rows: [domainRow] } = await pool.query(
+      `SELECT d.status, f.redtrack_stream_id
+       FROM domains d
+       LEFT JOIN funnels f ON d.funnel_id = f.id
+       WHERE d.id = $1`,
+      [req.params.id]
+    );
+    if (domainRow?.redtrack_stream_id) {
+      const weight = domainRow.status === 'active' ? 100 : 1;
+      ensureLanderInStream(domainRow.redtrack_stream_id, rtLander.id, weight)
+        .catch(err => console.error('[publish] ensureLanderInStream failed:', err.message));
     }
 
     res.json({ ok: true, redtrack_lander: rtLander });

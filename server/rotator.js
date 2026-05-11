@@ -5,35 +5,65 @@ const { uploadLander } = require('./cpanel');
 
 const LANDERS_DIR = path.join(__dirname, '../landers');
 
-async function updateRedTrackStream(streamId, oldLanderId, newLanderId) {
-  const apiKey = process.env.REDTRACK_API_KEY;
-  if (!apiKey || !streamId || !oldLanderId || !newLanderId) return;
+// ── RT stream helpers ─────────────────────────────────────────────────────────
 
+async function fetchStream(apiKey, streamId) {
   const { data: list } = await axios.get(
     'https://api.redtrack.io/streams',
     { params: { api_key: apiKey, template: true, per: 500 }, timeout: 10000 }
   );
   const items = (list.items || list || []).map(s => ({ ...s, id: s.id || s._id }));
-  const stream = items.find(s => String(s.id || s._id) === String(streamId));
-  if (!stream) throw new Error(`Stream ${streamId} not found in RT`);
+  return items.find(s => String(s.id) === String(streamId)) || null;
+}
 
-  let changed = false;
-  for (const landing of stream.landings || []) {
-    if (String(landing.id) === String(oldLanderId)) {
-      landing.id = newLanderId;
-      changed = true;
-    }
-  }
-
-  if (!changed) throw new Error(`Landing ${oldLanderId} not found in stream ${streamId}`);
-
+async function putStream(apiKey, streamId, stream) {
   await axios.put(
     `https://api.redtrack.io/streams/${streamId}`,
     stream,
     { params: { api_key: apiKey }, timeout: 10000 }
   );
-  console.log(`[rotator] RT stream ${streamId} updated: ${oldLanderId} → ${newLanderId}`);
 }
+
+// Rotation: remove banned lander from stream, promote next lander to weight 100
+async function rotateInStream(streamId, bannedLanderId, nextLanderId) {
+  const apiKey = process.env.REDTRACK_API_KEY;
+  if (!apiKey || !streamId || !nextLanderId) return;
+
+  const stream = await fetchStream(apiKey, streamId);
+  if (!stream) throw new Error(`Stream ${streamId} not found in RT`);
+
+  const nextInStream = (stream.landings || []).find(l => String(l.id) === String(nextLanderId));
+  if (!nextInStream) throw new Error(`Backup lander ${nextLanderId} not found in stream ${streamId} — add it to the funnel template first`);
+
+  const updatedLandings = (stream.landings || [])
+    .filter(l => !bannedLanderId || String(l.id) !== String(bannedLanderId))
+    .map(l => String(l.id) === String(nextLanderId) ? { ...l, weight: 100 } : l);
+
+  await putStream(apiKey, streamId, { ...stream, landings: updatedLandings });
+  console.log(`[rotator] RT stream ${streamId}: removed ${bannedLanderId}, ${nextLanderId} → weight 100`);
+}
+
+// Add a lander to a stream at the given weight (if not already present)
+async function ensureLanderInStream(streamId, rtLanderId, weight = 1) {
+  const apiKey = process.env.REDTRACK_API_KEY;
+  if (!apiKey || !streamId || !rtLanderId) return;
+
+  try {
+    const stream = await fetchStream(apiKey, streamId);
+    if (!stream) return;
+
+    const already = (stream.landings || []).find(l => String(l.id) === String(rtLanderId));
+    if (already) return; // already in stream
+
+    const updatedLandings = [...(stream.landings || []), { id: rtLanderId, weight }];
+    await putStream(apiKey, streamId, { ...stream, landings: updatedLandings });
+    console.log(`[rotator] RT stream ${streamId}: added lander ${rtLanderId} at weight ${weight}`);
+  } catch (err) {
+    console.error('[rotator] ensureLanderInStream failed:', err.message);
+  }
+}
+
+// ── Main rotation ─────────────────────────────────────────────────────────────
 
 async function rotate(bannedDomain, triggerSource = 'api') {
   const client = await pool.connect();
@@ -63,7 +93,7 @@ async function rotate(bannedDomain, triggerSource = 'api') {
       return { fromDomain: bannedDomain, toDomain: null, action: 'banned_only' };
     }
 
-    // Prefer standby domains that already have an RT lander published (ready for stream swap)
+    // Prefer standby domains that already have an RT lander in the stream (weight=1)
     const nextQuery = fromDomain.funnel_id
       ? await client.query(
           `SELECT * FROM domains WHERE status = 'standby' AND funnel_id = $1
@@ -90,11 +120,10 @@ async function rotate(bannedDomain, triggerSource = 'api') {
     const landerId = nextDomain.lander_id || fromDomain.lander_id;
     let lander = null;
 
-    // Only deploy lander files if the next domain hasn't been published to RT yet
-    // (publishing to RT implies files are already deployed)
     if (landerId) {
       const { rows: [l] } = await client.query(`SELECT * FROM landers WHERE id = $1`, [landerId]);
       lander = l || null;
+      // Only deploy files if lander hasn't been published to RT yet
       if (l && !nextDomain.redtrack_lander_id) {
         await uploadLander(path.join(LANDERS_DIR, l.folder), nextDomain.doc_root);
       }
@@ -113,18 +142,18 @@ async function rotate(bannedDomain, triggerSource = 'api') {
 
     await client.query('COMMIT');
 
-    // RT stream swap — awaited, errors surface as a warning (DB already committed)
+    // RT weight-based rotation: remove banned lander, promote next to weight 100
     let rtWarning = null;
-    if (fromDomain.redtrack_stream_id && fromDomain.redtrack_lander_id && nextDomain.redtrack_lander_id) {
+    if (fromDomain.redtrack_stream_id && nextDomain.redtrack_lander_id) {
       try {
-        await updateRedTrackStream(
+        await rotateInStream(
           fromDomain.redtrack_stream_id,
           fromDomain.redtrack_lander_id,
           nextDomain.redtrack_lander_id
         );
       } catch (err) {
         rtWarning = err.message;
-        console.error('[rotator] RT stream update failed after DB rotation:', err.message);
+        console.error('[rotator] RT weight rotation failed after DB rotation:', err.message);
       }
     }
 
@@ -133,7 +162,7 @@ async function rotate(bannedDomain, triggerSource = 'api') {
       toDomain: nextDomain.domain,
       lander: lander?.name || null,
       historyId: histRow.id,
-      rtUpdated: !rtWarning && !!(fromDomain.redtrack_stream_id && fromDomain.redtrack_lander_id && nextDomain.redtrack_lander_id),
+      rtUpdated: !rtWarning && !!(fromDomain.redtrack_stream_id && nextDomain.redtrack_lander_id),
       rtWarning,
     };
   } catch (err) {
@@ -149,4 +178,4 @@ async function rotate(bannedDomain, triggerSource = 'api') {
   }
 }
 
-module.exports = { rotate };
+module.exports = { rotate, ensureLanderInStream };

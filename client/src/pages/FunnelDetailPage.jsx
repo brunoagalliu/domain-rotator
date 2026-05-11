@@ -399,13 +399,18 @@ function LandingsCard({ landings, domains, rotating, onRotate }) {
       <div className="space-y-2">
         {landings.map((l, i) => {
           const linked = rtToDomain[String(l.id)];
-          const isActive = linked?.status === 'active';
+          const weight = l.weight ?? 100;
+          const isActive = weight >= 100;
           return (
             <div key={l.id}
-              className={`flex items-start gap-3 p-3 rounded-lg border ${isActive ? 'border-green-200 bg-green-50' : 'border-gray-100 bg-gray-50'}`}>
+              className={`flex items-start gap-3 p-3 rounded-lg border ${
+                isActive ? 'border-green-200 bg-green-50' : 'border-gray-100 bg-gray-50 opacity-80'
+              }`}>
               <span className="text-xs font-bold text-gray-400 pt-0.5 w-4 shrink-0">{i + 1}</span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800 truncate">{l.name || `Landing ${l.id}`}</p>
+                <p className={`text-sm font-medium truncate ${isActive ? 'text-gray-800' : 'text-gray-500'}`}>
+                  {l.name || `Landing ${l.id}`}
+                </p>
                 {linked ? (
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[linked.status]}`}>
@@ -426,9 +431,12 @@ function LandingsCard({ landings, domains, rotating, onRotate }) {
                   <p className="text-xs text-gray-400 mt-1 italic">Not linked to a domain</p>
                 )}
               </div>
-              <div className="text-right shrink-0">
-                <p className="text-xs text-gray-400">weight</p>
-                <p className="text-sm font-semibold text-gray-700">{l.weight ?? 100}</p>
+              <div className="shrink-0">
+                <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${
+                  isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {weight}
+                </span>
               </div>
             </div>
           );
