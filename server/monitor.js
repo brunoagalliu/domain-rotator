@@ -8,7 +8,6 @@ const POLL_MS = 60 * 1000;
 const state = {
   running:       false,
   configured:    false,
-  paused:        false,
   lastPoll:      null,
   lastError:     null,
   lastDetection: null, // { domain, at, threats }
@@ -16,7 +15,7 @@ const state = {
 
 async function pollOnce() {
   const apiKey = process.env.DETECTION_API_KEY;
-  if (!apiKey || state.paused) return;
+  if (!apiKey) return;
 
   const { data: scans } = await axios.get(`${DETECTION_URL}/api/scans`, {
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -45,6 +44,17 @@ async function pollOnce() {
     );
 
     if (domain.status !== 'active') continue;
+
+    // Skip if the funnel has auto-rotation disabled
+    if (domain.funnel_id) {
+      const { rows: [funnel] } = await pool.query(
+        `SELECT auto_rotate FROM funnels WHERE id = $1`, [domain.funnel_id]
+      );
+      if (funnel && funnel.auto_rotate === false) {
+        console.log(`[monitor] Skipped rotation for ${scan.domain} — auto-rotate disabled on funnel`);
+        continue;
+      }
+    }
 
     console.log(`[monitor] Flagged: ${scan.domain} — triggering rotation`);
     state.lastDetection = {
@@ -84,15 +94,10 @@ function start() {
   console.log('[monitor] Started — polling every 60s');
 }
 
-function setPaused(paused) {
-  state.paused = paused;
-}
-
 function getState() {
   return {
     running:             state.running,
     configured:          state.configured,
-    paused:              state.paused,
     lastPoll:            state.lastPoll,
     lastError:           state.lastError,
     lastDetection:       state.lastDetection,
@@ -100,4 +105,4 @@ function getState() {
   };
 }
 
-module.exports = { start, getState, setPaused };
+module.exports = { start, getState };

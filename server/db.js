@@ -16,6 +16,7 @@ async function init() {
 
     ALTER TABLE landers        ADD COLUMN IF NOT EXISTS category     TEXT;
     ALTER TABLE funnels        ADD COLUMN IF NOT EXISTS category     TEXT;
+    ALTER TABLE funnels        ADD COLUMN IF NOT EXISTS auto_rotate  BOOLEAN NOT NULL DEFAULT true;
     ALTER TABLE domains        ADD COLUMN IF NOT EXISTS category     TEXT;
     ALTER TABLE domains        ADD COLUMN IF NOT EXISTS flagged_at   TIMESTAMPTZ;
     ALTER TABLE domains        ADD COLUMN IF NOT EXISTS threat_types TEXT;
