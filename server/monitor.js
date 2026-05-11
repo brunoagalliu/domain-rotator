@@ -17,11 +17,6 @@ async function pollOnce() {
   const apiKey = process.env.DETECTION_API_KEY;
   if (!apiKey) return;
 
-  // On first poll include the last 2 minutes so we catch anything recent at startup
-  const since = state.lastPoll
-    ? new Date(state.lastPoll.getTime() - 5000)
-    : new Date(Date.now() - 2 * 60 * 1000);
-
   const { data: scans } = await axios.get(`${DETECTION_URL}/api/scans`, {
     headers: { Authorization: `Bearer ${apiKey}` },
     timeout: 15000,
@@ -30,9 +25,9 @@ async function pollOnce() {
   state.lastPoll  = new Date();
   state.lastError = null;
 
-  console.log(`[monitor] Got ${Array.isArray(scans) ? scans.length : '?'} scans, sample:`, JSON.stringify(Array.isArray(scans) ? scans.slice(0, 2) : scans).slice(0, 300));
-
-  const flagged = scans.filter(s => s.is_safe === 0 && new Date(s.scan_date) > since);
+  // Filter to unsafe scans only; duplicate-rotation is prevented by the
+  // status='active' check below — banned domains won't match after first rotation
+  const flagged = (Array.isArray(scans) ? scans : []).filter(s => s.is_safe === 0);
 
   for (const scan of flagged) {
     const { rows: [domain] } = await pool.query(
