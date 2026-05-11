@@ -43,15 +43,15 @@ async function pollOnce() {
       [new Date(scan.scan_date), JSON.stringify(scan.threat_types || []), domain.id]
     );
 
-    if (domain.status === 'banned') continue;
-
-    // Auto-ban flagged standby domains and remove from RT stream
-    if (domain.status === 'standby') {
-      console.log(`[monitor] Flagged standby domain ${scan.domain} — banning and removing from stream`);
-      await pool.query(
-        `UPDATE domains SET status = 'banned', banned_at = NOW() WHERE id = $1`,
-        [domain.id]
-      );
+    // Auto-ban flagged standby domains; also clean up already-banned domains still in stream
+    if (domain.status === 'standby' || domain.status === 'banned') {
+      if (domain.status === 'standby') {
+        console.log(`[monitor] Flagged standby domain ${scan.domain} — banning and removing from stream`);
+        await pool.query(
+          `UPDATE domains SET status = 'banned', banned_at = NOW() WHERE id = $1`,
+          [domain.id]
+        );
+      }
       if (domain.funnel_id && domain.redtrack_lander_id) {
         try {
           const { rows: [funnel] } = await pool.query(
@@ -68,14 +68,16 @@ async function pollOnce() {
               const updatedLandings = (stream.landings || []).filter(
                 l => String(l.id) !== String(domain.redtrack_lander_id)
               );
-              const patch = { ...stream, landings: updatedLandings };
-              if (updatedLandings.length === 0) patch.direct = true;
-              await axios.put(
-                `https://api.redtrack.io/streams/${funnel.redtrack_stream_id}`,
-                patch,
-                { params: { api_key: apiKey }, timeout: 10000 }
-              );
-              console.log(`[monitor] Removed ${scan.domain} from RT stream`);
+              if (updatedLandings.length < (stream.landings || []).length) {
+                const patch = { ...stream, landings: updatedLandings };
+                if (updatedLandings.length === 0) patch.direct = true;
+                await axios.put(
+                  `https://api.redtrack.io/streams/${funnel.redtrack_stream_id}`,
+                  patch,
+                  { params: { api_key: apiKey }, timeout: 10000 }
+                );
+                console.log(`[monitor] Removed ${scan.domain} from RT stream`);
+              }
             }
           }
         } catch (err) {
