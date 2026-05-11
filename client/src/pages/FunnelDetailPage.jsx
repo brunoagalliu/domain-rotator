@@ -390,8 +390,19 @@ function LandingsCard({ funnelId, landings, domains, rotating, onRotate, onRefre
       onRefresh();
     } catch (err) {
       alert(`Failed: ${err.message}`);
+      setEditingWeight(null);
     } finally {
       setSavingWeight(null);
+    }
+  }
+
+  async function handleRemoveFromStream(rtLanderId) {
+    if (!confirm('Remove this lander from the RT stream?')) return;
+    try {
+      await api.delete(`/funnels/${funnelId}/stream-lander/${rtLanderId}`);
+      onRefresh();
+    } catch (err) {
+      alert(`Failed: ${err.message}`);
     }
   }
 
@@ -418,16 +429,19 @@ function LandingsCard({ funnelId, landings, domains, rotating, onRotate, onRefre
         {landings.map((l, i) => {
           const linked = rtToDomain[String(l.id)];
           const weight = l.weight ?? 100;
-          const isActive = weight >= 100;
+          const isBanned = linked?.status === 'banned';
+          const isActive = weight >= 100 && !isBanned;
           const isEditing = editingWeight?.id === l.id;
           return (
             <div key={l.id}
               className={`flex items-start gap-3 p-3 rounded-lg border ${
-                isActive ? 'border-green-200 bg-green-50' : 'border-gray-100 bg-gray-50 opacity-80'
+                isBanned  ? 'border-red-200 bg-red-50' :
+                isActive  ? 'border-green-200 bg-green-50' :
+                'border-gray-100 bg-gray-50 opacity-80'
               }`}>
               <span className="text-xs font-bold text-gray-400 pt-0.5 w-4 shrink-0">{i + 1}</span>
               <div className="flex-1 min-w-0">
-                <p className={`text-sm font-medium truncate ${isActive ? 'text-gray-800' : 'text-gray-500'}`}>
+                <p className={`text-sm font-medium truncate ${isBanned ? 'text-red-700 line-through' : isActive ? 'text-gray-800' : 'text-gray-500'}`}>
                   {l.name || `Landing ${l.id}`}
                 </p>
                 {linked ? (
@@ -436,6 +450,9 @@ function LandingsCard({ funnelId, landings, domains, rotating, onRotate, onRefre
                       {linked.status}
                     </span>
                     <span className="text-xs font-mono text-gray-500">{linked.domain}</span>
+                    {isBanned && (
+                      <span className="text-xs text-red-600 font-medium">⚠ Still in stream — remove it</span>
+                    )}
                     {isActive && (
                       <button
                         onClick={() => onRotate(linked.domain)}
@@ -450,8 +467,17 @@ function LandingsCard({ funnelId, landings, domains, rotating, onRotate, onRefre
                   <p className="text-xs text-gray-400 mt-1 italic">Not linked to a domain</p>
                 )}
               </div>
+              {/* Banned lander: remove from stream */}
+              {isBanned && (
+                <button
+                  onClick={() => handleRemoveFromStream(l.id)}
+                  className="shrink-0 text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors font-medium"
+                >
+                  Remove from stream
+                </button>
+              )}
               {/* Editable weight */}
-              <div className="shrink-0 flex items-center gap-1">
+              {!isBanned && <div className="shrink-0 flex items-center gap-1">
                 {isEditing ? (
                   <>
                     <input
@@ -483,7 +509,7 @@ function LandingsCard({ funnelId, landings, domains, rotating, onRotate, onRefre
                     {weight}
                   </button>
                 )}
-              </div>
+              </div>}
             </div>
           );
         })}

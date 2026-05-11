@@ -37,10 +37,10 @@ async function rotateInStream(streamId, bannedLanderId, nextLanderId) {
 
   const updatedLandings = (stream.landings || [])
     .filter(l => !bannedLanderId || String(l.id) !== String(bannedLanderId))
-    .map(l => String(l.id) === String(nextLanderId) ? { ...l, weight: 100 } : { ...l, weight: 1 });
+    .map(l => String(l.id) === String(nextLanderId) ? { ...l, weight: 1000 } : { ...l, weight: 1 });
 
   await putStream(apiKey, streamId, { ...stream, landings: updatedLandings });
-  console.log(`[rotator] RT stream ${streamId}: removed ${bannedLanderId}, ${nextLanderId} → weight 100`);
+  console.log(`[rotator] RT stream ${streamId}: removed ${bannedLanderId}, ${nextLanderId} → weight 1000`);
 }
 
 // Add a lander to a stream at the given weight (if not already present)

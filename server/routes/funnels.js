@@ -183,8 +183,49 @@ router.patch('/:id/lander-weight', async (req, res) => {
     const stream = items.find(s => String(s.id) === String(funnel.redtrack_stream_id));
     if (!stream) return res.status(404).json({ message: 'RT stream not found.' });
 
+    // Block weight increase on banned domains
+    const { rows: [banned] } = await pool.query(
+      `SELECT id FROM domains WHERE redtrack_lander_id = $1 AND status = 'banned' LIMIT 1`,
+      [String(rt_lander_id)]
+    );
+    if (banned) return res.status(400).json({ message: 'Domain is banned — remove it from the stream instead.' });
+
     const updatedLandings = (stream.landings || []).map(l =>
       String(l.id) === String(rt_lander_id) ? { ...l, weight: Number(weight) } : l
+    );
+
+    await axios.put(
+      `https://api.redtrack.io/streams/${funnel.redtrack_stream_id}`,
+      { ...stream, landings: updatedLandings },
+      { params: { api_key: apiKey }, timeout: 10000 }
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.response?.data?.error || err.message });
+  }
+});
+
+// Remove a lander from the RT stream entirely
+router.delete('/:id/stream-lander/:rtLanderId', async (req, res) => {
+  const axios = require('axios');
+  try {
+    const { rows: [funnel] } = await pool.query(`SELECT * FROM funnels WHERE id = $1`, [req.params.id]);
+    if (!funnel?.redtrack_stream_id) return res.status(404).json({ message: 'Funnel or stream not found.' });
+
+    const apiKey = process.env.REDTRACK_API_KEY;
+    if (!apiKey) return res.status(500).json({ message: 'REDTRACK_API_KEY not configured.' });
+
+    const { data: list } = await axios.get('https://api.redtrack.io/streams', {
+      params: { api_key: apiKey, template: true, per: 500 },
+      timeout: 10000,
+    });
+    const items = (list.items || list || []).map(s => ({ ...s, id: s.id || s._id }));
+    const stream = items.find(s => String(s.id) === String(funnel.redtrack_stream_id));
+    if (!stream) return res.status(404).json({ message: 'RT stream not found.' });
+
+    const updatedLandings = (stream.landings || []).filter(
+      l => String(l.id) !== String(req.params.rtLanderId)
     );
 
     await axios.put(
