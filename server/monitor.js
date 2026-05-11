@@ -31,7 +31,7 @@ async function pollOnce() {
 
   for (const scan of flagged) {
     const { rows: [domain] } = await pool.query(
-      `SELECT id, status FROM domains WHERE domain = $1`,
+      `SELECT id, status, funnel_id, redtrack_lander_id FROM domains WHERE domain = $1`,
       [scan.domain]
     );
 
@@ -43,7 +43,47 @@ async function pollOnce() {
       [new Date(scan.scan_date), JSON.stringify(scan.threat_types || []), domain.id]
     );
 
-    if (domain.status !== 'active') continue;
+    if (domain.status === 'banned') continue;
+
+    // Auto-ban flagged standby domains and remove from RT stream
+    if (domain.status === 'standby') {
+      console.log(`[monitor] Flagged standby domain ${scan.domain} — banning and removing from stream`);
+      await pool.query(
+        `UPDATE domains SET status = 'banned', banned_at = NOW() WHERE id = $1`,
+        [domain.id]
+      );
+      if (domain.funnel_id && domain.redtrack_lander_id) {
+        try {
+          const { rows: [funnel] } = await pool.query(
+            `SELECT redtrack_stream_id FROM funnels WHERE id = $1`, [domain.funnel_id]
+          );
+          if (funnel?.redtrack_stream_id) {
+            const apiKey = process.env.REDTRACK_API_KEY;
+            const { data: list } = await axios.get('https://api.redtrack.io/streams', {
+              params: { api_key: apiKey, template: true, per: 500 }, timeout: 10000,
+            });
+            const items = (list.items || list || []).map(s => ({ ...s, id: s.id || s._id }));
+            const stream = items.find(s => String(s.id) === String(funnel.redtrack_stream_id));
+            if (stream) {
+              const updatedLandings = (stream.landings || []).filter(
+                l => String(l.id) !== String(domain.redtrack_lander_id)
+              );
+              const patch = { ...stream, landings: updatedLandings };
+              if (updatedLandings.length === 0) patch.direct = true;
+              await axios.put(
+                `https://api.redtrack.io/streams/${funnel.redtrack_stream_id}`,
+                patch,
+                { params: { api_key: apiKey }, timeout: 10000 }
+              );
+              console.log(`[monitor] Removed ${scan.domain} from RT stream`);
+            }
+          }
+        } catch (err) {
+          console.error(`[monitor] Failed to remove ${scan.domain} from stream:`, err.message);
+        }
+      }
+      continue;
+    }
 
     // Skip if the funnel has auto-rotation disabled
     if (domain.funnel_id) {
@@ -56,7 +96,7 @@ async function pollOnce() {
       }
     }
 
-    console.log(`[monitor] Flagged: ${scan.domain} — triggering rotation`);
+    console.log(`[monitor] Flagged active domain ${scan.domain} — triggering rotation`);
     state.lastDetection = {
       domain:  scan.domain,
       at:      new Date(),
