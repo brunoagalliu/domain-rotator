@@ -13,9 +13,64 @@ const state = {
   lastDetection: null, // { domain, at, threats }
 };
 
+// Remove any banned domains that are still present in their RT streams,
+// regardless of whether the detection API still reports them as flagged.
+async function cleanupBannedFromStreams() {
+  const rtApiKey = process.env.REDTRACK_API_KEY;
+  if (!rtApiKey) return;
+
+  const { rows: banned } = await pool.query(`
+    SELECT d.id, d.domain, d.redtrack_lander_id, f.redtrack_stream_id
+    FROM domains d
+    JOIN funnels f ON f.id = d.funnel_id
+    WHERE d.status = 'banned'
+      AND d.redtrack_lander_id IS NOT NULL
+      AND f.redtrack_stream_id IS NOT NULL
+  `);
+  if (banned.length === 0) return;
+
+  // Fetch all streams once, then iterate
+  const { data: list } = await axios.get('https://api.redtrack.io/streams', {
+    params: { api_key: rtApiKey, template: true, per: 500 }, timeout: 10000,
+  });
+  const streams = (list.items || list || []).map(s => ({ ...s, id: String(s.id || s._id) }));
+
+  // Group banned domains by stream to minimise PUT calls
+  const byStream = {};
+  for (const d of banned) {
+    const key = String(d.redtrack_stream_id);
+    if (!byStream[key]) byStream[key] = [];
+    byStream[key].push(String(d.redtrack_lander_id));
+  }
+
+  for (const [streamId, landerIds] of Object.entries(byStream)) {
+    const stream = streams.find(s => s.id === streamId);
+    if (!stream) continue;
+
+    const before = (stream.landings || []).length;
+    const updatedLandings = (stream.landings || []).filter(
+      l => !landerIds.includes(String(l.id))
+    );
+    if (updatedLandings.length === before) continue; // nothing to remove
+
+    const patch = { ...stream, landings: updatedLandings };
+    if (updatedLandings.length === 0) patch.direct = true;
+    await axios.put(
+      `https://api.redtrack.io/streams/${streamId}`,
+      patch,
+      { params: { api_key: rtApiKey }, timeout: 10000 }
+    );
+    console.log(`[monitor] Cleanup: removed ${before - updatedLandings.length} banned lander(s) from stream ${streamId}`);
+  }
+}
+
 async function pollOnce() {
   const apiKey = process.env.DETECTION_API_KEY;
   if (!apiKey) return;
+
+  await cleanupBannedFromStreams().catch(err =>
+    console.error('[monitor] Cleanup error:', err.message)
+  );
 
   const { data: scans } = await axios.get(`${DETECTION_URL}/api/scans`, {
     headers: { Authorization: `Bearer ${apiKey}` },
