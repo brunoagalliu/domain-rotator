@@ -14,76 +14,66 @@ const ROLE_COLORS = {
   backup:  'bg-gray-100 text-gray-600',
 };
 
-// ── Add Domain form ───────────────────────────────────────────────────────────
-function AddDomainForm({ funnelId, onSave, onCancel }) {
-  const [form, setForm] = useState({
-    domain: '', doc_root: '', role: 'backup', priority: 0, status: 'standby',
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState('');
+// ── Add Lander picker (select from existing domains) ─────────────────────────
+function AddLanderPicker({ funnelId, funnelDomains, onSave, onCancel }) {
+  const [allDomains, setAllDomains] = useState([]);
+  const [selected,   setSelected]   = useState('');
+  const [loading,    setLoading]    = useState(true);
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState('');
 
-  function set(key, val) { setForm(f => ({ ...f, [key]: val })); }
+  useEffect(() => {
+    api.get('/domains').then(data => {
+      const inFunnel = new Set(funnelDomains.map(d => d.id));
+      // Show unassigned domains + allow reassigning from other funnels
+      setAllDomains((data || []).filter(d => !inFunnel.has(d.id) && d.status !== 'banned'));
+    }).catch(() => setAllDomains([]))
+      .finally(() => setLoading(false));
+  }, [funnelDomains]);
 
-  function handleDomainBlur(e) {
-    const d = e.target.value.toLowerCase().trim();
-    set('domain', d);
-    if (!form.doc_root && d) set('doc_root', `public_html/${d}`);
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function handleAdd() {
+    if (!selected) return;
     setSaving(true); setError('');
     try {
-      await api.post('/domains', { ...form, funnel_id: funnelId, priority: Number(form.priority) });
+      await api.patch(`/domains/${selected}`, { funnel_id: funnelId });
       onSave();
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="border border-indigo-200 rounded-lg p-4 bg-indigo-50 space-y-3 mt-3">
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Domain *</label>
-          <input value={form.domain} onChange={e => set('domain', e.target.value)} onBlur={handleDomainBlur}
-            required placeholder="example.com"
-            className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Role</label>
-          <select value={form.role} onChange={e => set('role', e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-            <option value="primary">Primary</option>
-            <option value="backup">Backup</option>
-          </select>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">cPanel Doc Root *</label>
-          <input value={form.doc_root} onChange={e => set('doc_root', e.target.value)} required
-            placeholder="public_html/example.com"
-            className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
-          <select value={form.status} onChange={e => set('status', e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-            <option value="standby">Standby</option>
-            <option value="active">Active</option>
-          </select>
-        </div>
-      </div>
+    <div className="border border-indigo-200 rounded-lg p-4 bg-indigo-50 space-y-3 mt-3">
+      <p className="text-xs font-medium text-gray-700">Add existing domain to this funnel's lander pool:</p>
+      {loading ? (
+        <p className="text-xs text-gray-400">Loading domains...</p>
+      ) : allDomains.length === 0 ? (
+        <p className="text-xs text-gray-400 italic">No unassigned domains available. Add domains on the Domains page first.</p>
+      ) : (
+        <select
+          value={selected}
+          onChange={e => setSelected(e.target.value)}
+          className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+        >
+          <option value="">Select a domain...</option>
+          {allDomains.map(d => (
+            <option key={d.id} value={d.id}>
+              {d.domain} — {d.status}{d.lander_name ? ` · ${d.lander_name}` : ''}
+            </option>
+          ))}
+        </select>
+      )}
       {error && <p className="text-red-600 text-xs">{error}</p>}
       <div className="flex gap-2 justify-end">
         <button type="button" onClick={onCancel}
-          className="px-3 py-1.5 text-xs text-gray-600 hover:bg-white rounded border border-gray-300 transition-colors">Cancel</button>
-        <button type="submit" disabled={saving}
+          className="px-3 py-1.5 text-xs text-gray-600 hover:bg-white rounded border border-gray-300 transition-colors">
+          Cancel
+        </button>
+        <button onClick={handleAdd} disabled={!selected || saving || loading}
           className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-          {saving ? 'Adding...' : 'Add Domain'}
+          {saving ? 'Adding...' : 'Add to Pool'}
         </button>
       </div>
-    </form>
+    </div>
   );
 }
 
@@ -155,9 +145,13 @@ function LinkRTPanel({ domainId, dl, onSave, onCancel }) {
 
   async function handleSave() {
     if (!selected) return;
+    const rtLander = rtLandings.find(l => String(l.id) === String(selected));
     setSaving(true);
     try {
-      await api.patch(`/domains/${domainId}/landers/${dl.id}`, { redtrack_lander_id: selected });
+      await api.patch(`/domains/${domainId}/landers/${dl.id}`, {
+        redtrack_lander_id:    selected,
+        redtrack_lander_title: rtLander?.title || null,
+      });
       onSave();
     } catch (err) {
       alert(err.message);
@@ -241,15 +235,15 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
           </div>
           {primaryLander ? (
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs text-gray-500">
-                {primaryLander.lander_name}
+              <span className="text-xs text-gray-500 truncate">
+                {primaryLander.redtrack_lander_title || primaryLander.lander_name}
                 {primaryLander.subdirectory
                   ? <span className="font-mono text-gray-400">/{primaryLander.subdirectory}</span>
                   : null}
               </span>
               {primaryLander.redtrack_lander_id
-                ? <span className="text-xs text-green-600 font-medium">✓ in RT</span>
-                : <span className="text-xs text-amber-500">not in RT</span>
+                ? <span className="text-xs text-green-600 font-medium shrink-0">✓ RT</span>
+                : <span className="text-xs text-amber-500 shrink-0">not in RT</span>
               }
             </div>
           ) : (
@@ -613,7 +607,7 @@ export default function FunnelDetailPage() {
           {!showAddDomain && (
             <button onClick={() => setShowAddDomain(true)}
               className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
-              + Add Domain
+              + Add Lander
             </button>
           )}
         </div>
@@ -636,8 +630,9 @@ export default function FunnelDetailPage() {
         )}
 
         {showAddDomain && (
-          <AddDomainForm
+          <AddLanderPicker
             funnelId={Number(id)}
+            funnelDomains={funnel.domains}
             onSave={() => { setShowAddDomain(false); load(); }}
             onCancel={() => setShowAddDomain(false)}
           />
