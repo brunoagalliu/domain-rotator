@@ -29,19 +29,19 @@ router.post('/', async (req, res) => {
   const {
     domain, doc_root, status = 'standby', lander_id,
     funnel_id, role = 'backup', redtrack_lander_id,
-    priority = 0, notes,
+    priority = 0, notes, category,
   } = req.body;
   if (!domain || !doc_root) {
     return res.status(400).json({ message: 'domain and doc_root are required.' });
   }
   try {
     const { rows: [row] } = await pool.query(
-      `INSERT INTO domains (domain, doc_root, status, lander_id, funnel_id, role, redtrack_lander_id, priority, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      `INSERT INTO domains (domain, doc_root, status, lander_id, funnel_id, role, redtrack_lander_id, priority, notes, category)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
       [
         domain.toLowerCase().trim(), doc_root.trim(), status,
         lander_id || null, funnel_id || null, role,
-        redtrack_lander_id || null, priority, notes || null,
+        redtrack_lander_id || null, priority, notes || null, category || null,
       ]
     );
     res.status(201).json(row);
@@ -55,7 +55,7 @@ router.patch('/:id', async (req, res) => {
   const allowed = [
     'domain', 'doc_root', 'status', 'lander_id',
     'funnel_id', 'role', 'redtrack_lander_id',
-    'priority', 'notes', 'banned_at',
+    'priority', 'notes', 'banned_at', 'category',
   ];
   const fields = [];
   const values = [];

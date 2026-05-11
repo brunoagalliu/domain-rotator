@@ -8,6 +8,13 @@ const STATUS_COLORS = {
   banned:  'bg-red-100 text-red-800',
 };
 
+const CATEGORIES = ['Auto', 'Cloud'];
+
+const CATEGORY_COLORS = {
+  Auto:  'bg-blue-100 text-blue-700',
+  Cloud: 'bg-purple-100 text-purple-700',
+};
+
 function Modal({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
@@ -31,6 +38,7 @@ function DomainForm({ initial = {}, landers, onSave, onClose }) {
     lander_id: initial.lander_id || '',
     priority:  initial.priority  ?? 0,
     notes:     initial.notes     || '',
+    category:  initial.category  || '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
@@ -129,14 +137,27 @@ function DomainForm({ initial = {}, landers, onSave, onClose }) {
         </div>
       </div>
 
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">Notes</label>
-        <input
-          value={form.notes}
-          onChange={e => set('notes', e.target.value)}
-          placeholder="Optional notes"
-          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
+          <select
+            value={form.category}
+            onChange={e => set('category', e.target.value)}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">None</option>
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Notes</label>
+          <input
+            value={form.notes}
+            onChange={e => set('notes', e.target.value)}
+            placeholder="Optional notes"
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
       </div>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
@@ -216,7 +237,7 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
   if (landers === null) {
     return (
       <tr>
-        <td colSpan={6} className="px-8 py-2 bg-gray-50 text-xs text-gray-400">Loading landers…</td>
+        <td colSpan={8} className="px-8 py-2 bg-gray-50 text-xs text-gray-400">Loading landers…</td>
       </tr>
     );
   }
@@ -224,7 +245,7 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
   return (
     <>
     <tr>
-      <td colSpan={6} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
+      <td colSpan={8} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
         <div className="px-8 py-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Landers</span>
@@ -362,6 +383,11 @@ export default function DomainsPage() {
   const counts   = domains.reduce((acc, d) => { acc[d.status] = (acc[d.status] || 0) + 1; return acc; }, {});
   const filtered = filter === 'all' ? domains : domains.filter(d => d.status === filter);
 
+  async function handleCategoryChange(id, category) {
+    const updated = await api.patch(`/domains/${id}`, { category: category || null });
+    setDomains(prev => prev.map(d => d.id === id ? { ...d, category: updated.category } : d));
+  }
+
   async function handleDelete(id, domain) {
     if (!confirm(`Remove "${domain}" from the pool?`)) return;
     await api.delete(`/domains/${id}`);
@@ -440,6 +466,7 @@ export default function DomainsPage() {
               <th className="w-6 px-4 py-3"></th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Domain</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Lander</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Priority</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Added</th>
@@ -448,9 +475,9 @@ export default function DomainsPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={7} className="text-center py-10 text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={8} className="text-center py-10 text-gray-400">Loading...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-10 text-gray-400">No domains found</td></tr>
+              <tr><td colSpan={8} className="text-center py-10 text-gray-400">No domains found</td></tr>
             ) : filtered.map(d => (
               <>
                 <tr key={d.id} className="hover:bg-gray-50 transition-colors">
@@ -473,6 +500,18 @@ export default function DomainsPage() {
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[d.status]}`}>
                       {d.status}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={d.category || ''}
+                      onChange={e => handleCategoryChange(d.id, e.target.value)}
+                      className={`text-xs px-2 py-1 rounded border-0 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+                        d.category ? CATEGORY_COLORS[d.category] : 'bg-gray-100 text-gray-400'
+                      }`}
+                    >
+                      <option value="">— none —</option>
+                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">{d.lander_name || '—'}</td>
                   <td className="px-4 py-3 text-gray-500">{d.priority}</td>

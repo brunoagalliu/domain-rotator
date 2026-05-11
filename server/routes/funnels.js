@@ -62,14 +62,18 @@ router.post('/', async (req, res) => {
 });
 
 router.patch('/:id', async (req, res) => {
-  const { name, redtrack_stream_id } = req.body;
+  const { name, redtrack_stream_id, category } = req.body;
+  const fields = [];
+  const values = [];
+  if (name !== undefined)               { fields.push(`name = $${fields.length + 1}`);               values.push(name || null); }
+  if (redtrack_stream_id !== undefined) { fields.push(`redtrack_stream_id = $${fields.length + 1}`); values.push(redtrack_stream_id || null); }
+  if (category !== undefined)           { fields.push(`category = $${fields.length + 1}`);           values.push(category || null); }
+  if (fields.length === 0) return res.status(400).json({ message: 'No fields to update.' });
+  values.push(req.params.id);
   try {
     const { rows: [funnel] } = await pool.query(
-      `UPDATE funnels SET
-        name                 = COALESCE($1, name),
-        redtrack_stream_id = COALESCE($2, redtrack_stream_id)
-       WHERE id = $3 RETURNING *`,
-      [name || null, redtrack_stream_id || null, req.params.id]
+      `UPDATE funnels SET ${fields.join(', ')} WHERE id = $${values.length} RETURNING *`,
+      values
     );
     if (!funnel) return res.status(404).json({ message: 'Not found.' });
     res.json(funnel);

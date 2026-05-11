@@ -124,6 +124,13 @@ function SearchSelect({ value, options, placeholder, onChange }) {
   );
 }
 
+const CATEGORIES = ['Auto', 'Cloud'];
+
+const CATEGORY_COLORS = {
+  Auto:  'bg-blue-100 text-blue-700',
+  Cloud: 'bg-purple-100 text-purple-700',
+};
+
 const FUNNEL_TYPES = [
   { value: 'single_landing', label: 'Single landing' },
   { value: 'multi_landing',  label: 'Multi landing' },
@@ -375,19 +382,24 @@ function FunnelModal({ stream, onSave, onClose }) {
 
 export default function FunnelsPage() {
   const navigate = useNavigate();
-  const [streams, setStreams] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState('');
-  const [managing, setManaging]       = useState(null);
-  const [showCreate, setShowCreate]   = useState(false);
+  const [streams, setStreams]             = useState([]);
+  const [localFunnels, setLocalFunnels]   = useState([]);
+  const [loading, setLoading]             = useState(true);
+  const [error, setError]                 = useState('');
+  const [managing, setManaging]           = useState(null);
+  const [showCreate, setShowCreate]       = useState(false);
   const [editingStream, setEditingStream] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await api.get('/redtrack/streams');
+      const [data, funnels] = await Promise.all([
+        api.get('/redtrack/streams'),
+        api.get('/funnels').catch(() => []),
+      ]);
       setStreams(data);
+      setLocalFunnels(Array.isArray(funnels) ? funnels : []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -396,6 +408,15 @@ export default function FunnelsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function handleCategoryChange(funnel, category) {
+    try {
+      await api.patch(`/funnels/${funnel.id}`, { category: category || null });
+      setLocalFunnels(prev => prev.map(f => f.id === funnel.id ? { ...f, category: category || null } : f));
+    } catch (err) {
+      alert(err.message);
+    }
+  }
 
   async function handleManage(stream) {
     setManaging(stream.id);
@@ -436,7 +457,9 @@ export default function FunnelsPage() {
         <div className="text-center py-16 text-gray-400">No funnel templates found in RedTrack.</div>
       ) : (
         <div className="grid gap-3">
-          {streams.map(s => (
+          {streams.map(s => {
+            const localFunnel = localFunnels.find(f => String(f.redtrack_stream_id) === String(s.id));
+            return (
             <div
               key={s.id}
               className="bg-white rounded-lg border border-gray-200 px-5 py-4 flex items-center gap-4 hover:border-indigo-200 transition-colors"
@@ -452,6 +475,18 @@ export default function FunnelsPage() {
                   <span className="font-medium text-gray-700">{s.offers?.length ?? 0}</span> offer{s.offers?.length !== 1 ? 's' : ''}
                 </span>
               </div>
+              {localFunnel && (
+                <select
+                  value={localFunnel.category || ''}
+                  onChange={e => handleCategoryChange(localFunnel, e.target.value)}
+                  className={`text-xs px-2 py-1 rounded border-0 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shrink-0 ${
+                    localFunnel.category ? CATEGORY_COLORS[localFunnel.category] : 'bg-gray-100 text-gray-400'
+                  }`}
+                >
+                  <option value="">— none —</option>
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              )}
               <button
                 onClick={() => setEditingStream(s)}
                 className="text-xs px-3 py-1.5 border border-gray-300 text-gray-600 rounded hover:bg-gray-50 transition-colors font-medium shrink-0"
@@ -466,7 +501,8 @@ export default function FunnelsPage() {
                 {managing === s.id ? 'Opening...' : 'Manage'}
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
