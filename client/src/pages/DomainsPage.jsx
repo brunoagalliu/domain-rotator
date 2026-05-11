@@ -8,6 +8,22 @@ const STATUS_COLORS = {
   banned:  'bg-red-100 text-red-800',
 };
 
+function ThreatBadges({ raw }) {
+  if (!raw) return <span className="text-gray-300 text-xs">—</span>;
+  let threats;
+  try { threats = JSON.parse(raw); } catch (e) { return <span className="text-gray-300 text-xs">—</span>; }
+  if (!Array.isArray(threats) || threats.length === 0) return <span className="text-gray-300 text-xs">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {threats.map(t => (
+        <span key={t} className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+          {String(t).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 const CATEGORIES = ['Auto', 'Cloud'];
 
 const CATEGORY_COLORS = {
@@ -508,21 +524,7 @@ export default function DomainsPage() {
                       {d.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
-                    {(() => {
-                      let threats = [];
-                      try { threats = d.threat_types ? JSON.parse(d.threat_types) : []; } catch {}
-                      return threats.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {threats.map(t => (
-                            <span key={t} className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-                              {t.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
-                            </span>
-                          ))}
-                        </div>
-                      ) : <span className="text-gray-300 text-xs">—</span>;
-                    })()}
-                  </td>
+                  <td className="px-4 py-3"><ThreatBadges raw={d.threat_types} /></td>
                   <td className="px-4 py-3">
                     <select
                       value={d.category || ''}
