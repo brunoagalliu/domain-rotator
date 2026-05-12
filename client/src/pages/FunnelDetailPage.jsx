@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import PublishToRTModal from '../components/PublishToRTModal';
@@ -17,25 +17,39 @@ const ROLE_COLORS = {
 // ── Add Lander picker (select from existing domains) ─────────────────────────
 function AddLanderPicker({ funnelId, funnelDomains, onSave, onCancel }) {
   const [allDomains, setAllDomains] = useState([]);
-  const [selected,   setSelected]   = useState('');
+  const [selected,   setSelected]   = useState(null); // { id, domain, status }
+  const [query,      setQuery]      = useState('');
+  const [open,       setOpen]       = useState(false);
   const [loading,    setLoading]    = useState(true);
   const [saving,     setSaving]     = useState(false);
   const [error,      setError]      = useState('');
+  const containerRef = useRef(null);
 
   useEffect(() => {
     api.get('/domains').then(data => {
       const inFunnel = new Set(funnelDomains.map(d => d.id));
-      // Show unassigned domains + allow reassigning from other funnels
       setAllDomains((data || []).filter(d => !inFunnel.has(d.id) && d.status !== 'banned'));
     }).catch(() => setAllDomains([]))
       .finally(() => setLoading(false));
   }, [funnelDomains]);
 
+  useEffect(() => {
+    function handleClick(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const filtered = allDomains.filter(d =>
+    d.domain.toLowerCase().includes(query.toLowerCase())
+  );
+
   async function handleAdd() {
     if (!selected) return;
     setSaving(true); setError('');
     try {
-      await api.patch(`/domains/${selected}`, { funnel_id: funnelId });
+      await api.patch(`/domains/${selected.id}`, { funnel_id: funnelId });
       onSave();
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
@@ -49,18 +63,45 @@ function AddLanderPicker({ funnelId, funnelDomains, onSave, onCancel }) {
       ) : allDomains.length === 0 ? (
         <p className="text-xs text-gray-400 italic">No unassigned domains available. Add domains on the Domains page first.</p>
       ) : (
-        <select
-          value={selected}
-          onChange={e => setSelected(e.target.value)}
-          className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-        >
-          <option value="">Select a domain...</option>
-          {allDomains.map(d => (
-            <option key={d.id} value={d.id}>
-              {d.domain} — {d.status}{d.lander_name ? ` · ${d.lander_name}` : ''}
-            </option>
-          ))}
-        </select>
+        <div ref={containerRef} className="relative">
+          <div
+            className={`flex items-center w-full border rounded bg-white px-3 py-1.5 text-sm cursor-text ${open ? 'ring-2 ring-indigo-500 border-indigo-400' : 'border-gray-300'}`}
+            onClick={() => setOpen(true)}
+          >
+            {selected && !open ? (
+              <span className="flex-1 text-gray-800">{selected.domain}</span>
+            ) : (
+              <input
+                autoFocus={open}
+                className="flex-1 outline-none bg-transparent placeholder-gray-400 text-sm"
+                placeholder={selected ? selected.domain : 'Search domains...'}
+                value={query}
+                onChange={e => { setQuery(e.target.value); setOpen(true); }}
+                onFocus={() => setOpen(true)}
+              />
+            )}
+            {selected && (
+              <button className="ml-2 text-gray-400 hover:text-gray-600" onClick={e => { e.stopPropagation(); setSelected(null); setQuery(''); }}>✕</button>
+            )}
+          </div>
+          {open && (
+            <ul className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded shadow-lg max-h-48 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <li className="px-3 py-2 text-xs text-gray-400 italic">No matches</li>
+              ) : filtered.map(d => (
+                <li
+                  key={d.id}
+                  className="px-3 py-2 text-sm cursor-pointer hover:bg-indigo-50 flex items-center justify-between"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => { setSelected(d); setQuery(''); setOpen(false); }}
+                >
+                  <span className="font-mono text-xs">{d.domain}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${d.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{d.status}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       {error && <p className="text-red-600 text-xs">{error}</p>}
       <div className="flex gap-2 justify-end">
