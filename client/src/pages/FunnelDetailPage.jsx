@@ -186,7 +186,7 @@ function AddLanderPicker({ funnelId, funnelDomains, onSave, onCancel }) {
 }
 
 // ── Add Lander to Domain form ─────────────────────────────────────────────────
-function AddLanderForm({ domainId, onSave, onCancel }) {
+function AddLanderForm({ domainId, currentRtLanderId, onSave, onCancel }) {
   const [domLanders,  setDomLanders]  = useState([]);
   const [selected,    setSelected]    = useState('');
   const [loading,     setLoading]     = useState(true);
@@ -195,7 +195,7 @@ function AddLanderForm({ domainId, onSave, onCancel }) {
 
   useEffect(() => {
     api.get(`/domains/${domainId}/landers`)
-      .then(rows => setDomLanders((rows || []).filter(dl => dl.redtrack_lander_id)))
+      .then(rows => setDomLanders((rows || []).filter(dl => dl.redtrack_lander_id && dl.redtrack_lander_id !== currentRtLanderId)))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [domainId]);
@@ -420,6 +420,7 @@ function DomainRow({ domain, onRotate, onDelete, onRefresh }) {
           {showAddLander ? (
             <AddLanderForm
               domainId={domain.id}
+              currentRtLanderId={domain.redtrack_lander_id}
               onSave={() => { setShowAddLander(false); loadLanders(); onRefresh(); }}
               onCancel={() => setShowAddLander(false)}
             />
