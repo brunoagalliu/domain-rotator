@@ -186,20 +186,27 @@ function AddLanderPicker({ funnelId, funnelDomains, onSave, onCancel }) {
 }
 
 // ── Add Lander to Domain form ─────────────────────────────────────────────────
-function AddLanderForm({ domainId, localLanders, onSave, onCancel }) {
-  const [form, setForm] = useState({ lander_id: '', subdirectory: '' });
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState('');
+function AddLanderForm({ domainId, onSave, onCancel }) {
+  const [domLanders,  setDomLanders]  = useState([]);
+  const [selected,    setSelected]    = useState('');
+  const [loading,     setLoading]     = useState(true);
+  const [saving,      setSaving]      = useState(false);
+  const [error,       setError]       = useState('');
+
+  useEffect(() => {
+    api.get(`/domains/${domainId}/landers`)
+      .then(rows => setDomLanders((rows || []).filter(dl => dl.redtrack_lander_id)))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [domainId]);
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.lander_id) return setError('Select a lander.');
+    const dl = domLanders.find(l => String(l.id) === selected);
+    if (!dl) return setError('Select a lander.');
     setSaving(true); setError('');
     try {
-      await api.post(`/domains/${domainId}/landers`, {
-        lander_id: Number(form.lander_id),
-        subdirectory: form.subdirectory.trim().replace(/^\//, ''),
-      });
+      await api.patch(`/domains/${domainId}`, { redtrack_lander_id: dl.redtrack_lander_id });
       onSave();
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
@@ -209,24 +216,28 @@ function AddLanderForm({ domainId, localLanders, onSave, onCancel }) {
     <form onSubmit={handleSubmit} className="flex items-end gap-2 mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
       <div className="flex-1">
         <label className="block text-xs font-medium text-gray-600 mb-1">Lander *</label>
-        <select value={form.lander_id} onChange={e => setForm(f => ({ ...f, lander_id: e.target.value }))}
-          className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
-          <option value="">Select lander...</option>
-          {localLanders.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-        </select>
-      </div>
-      <div className="w-32">
-        <label className="block text-xs font-medium text-gray-600 mb-1">Path <span className="text-gray-400">(optional)</span></label>
-        <input value={form.subdirectory} onChange={e => setForm(f => ({ ...f, subdirectory: e.target.value }))}
-          placeholder="lp2"
-          className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        {loading ? (
+          <p className="text-xs text-gray-400">Loading…</p>
+        ) : domLanders.length === 0 ? (
+          <p className="text-xs text-gray-400 italic">No RT-linked landers — set them up in Domains first.</p>
+        ) : (
+          <select value={selected} onChange={e => setSelected(e.target.value)}
+            className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">Select lander...</option>
+            {domLanders.map(dl => (
+              <option key={dl.id} value={dl.id}>
+                {dl.redtrack_lander_title || dl.lander_name}{dl.subdirectory ? ` (/${dl.subdirectory})` : ''}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       {error && <p className="text-red-600 text-xs self-center">{error}</p>}
       <button type="button" onClick={onCancel}
         className="px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-200 rounded transition-colors">Cancel</button>
-      <button type="submit" disabled={saving}
+      <button type="submit" disabled={saving || !selected || loading || domLanders.length === 0}
         className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-        {saving ? '...' : 'Add'}
+        {saving ? '…' : 'Set'}
       </button>
     </form>
   );
@@ -292,13 +303,11 @@ function LinkRTPanel({ domainId, dl, onSave, onCancel }) {
 }
 
 // ── Domain row — flat lander pool entry ───────────────────────────────────────
-function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
+function DomainRow({ domain, onRotate, onDelete, onRefresh }) {
   const [landers, setLanders]             = useState([]);
   const [expanded, setExpanded]           = useState(false);
   const [showAddLander, setShowAddLander] = useState(false);
   const [actionState, setActionState]     = useState({});
-  const [publishingDl, setPublishingDl]   = useState(null);
-  const [linkingDl,    setLinkingDl]      = useState(null);
 
   const loadLanders = useCallback(async () => {
     const rows = await api.get(`/domains/${domain.id}/landers`).catch(() => []);
@@ -368,31 +377,6 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
             Ban &amp; Rotate
           </button>
         )}
-        {domain.status === 'standby' && primaryLander && !primaryLander.redtrack_lander_id && (
-          linkingDl?.id === primaryLander.id ? (
-            <LinkRTPanel
-              domainId={domain.id}
-              dl={primaryLander}
-              onSave={() => { setLinkingDl(null); loadLanders(); onRefresh(); }}
-              onCancel={() => setLinkingDl(null)}
-            />
-          ) : (
-            <>
-              <button onClick={() => handleDeploy(primaryLander)} disabled={!!actionState[primaryLander.id]}
-                className="text-xs px-2 py-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors shrink-0">
-                {actionState[primaryLander.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
-              </button>
-              <button onClick={() => setPublishingDl({ ...primaryLander, domain: domain.domain })}
-                className="text-xs px-2 py-1.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors shrink-0">
-                Publish to RT
-              </button>
-              <button onClick={() => setLinkingDl(primaryLander)}
-                className="text-xs px-2 py-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors shrink-0">
-                Link RT
-              </button>
-            </>
-          )
-        )}
 
         {/* Expand toggle */}
         <button
@@ -413,53 +397,30 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
       {expanded && (
         <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 space-y-2">
           {landers.map(dl => (
-            <div key={dl.id} className="space-y-1">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="flex-1 text-gray-700 truncate">
-                  <span className="font-medium">{dl.lander_name}</span>
-                  <span className="text-gray-400 font-mono ml-1">
-                    {dl.subdirectory ? `/${dl.subdirectory}` : '/'}
-                  </span>
-                  {dl.redtrack_lander_id
-                    ? <span className="ml-2 text-green-600 font-medium">✓ RT</span>
-                    : <span className="ml-2 text-amber-500">not in RT</span>
-                  }
+            <div key={dl.id} className="flex items-center gap-2 text-xs">
+              <span className="flex-1 text-gray-700 truncate">
+                <span className="font-medium">{dl.redtrack_lander_title || dl.lander_name}</span>
+                <span className="text-gray-400 font-mono ml-1">
+                  {dl.subdirectory ? `/${dl.subdirectory}` : '/'}
                 </span>
-                <button onClick={() => handleDeploy(dl)} disabled={!!actionState[dl.id]}
-                  className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors">
-                  {actionState[dl.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
-                </button>
-                {!dl.redtrack_lander_id && (
-                  <>
-                    <button onClick={() => setPublishingDl({ ...dl, domain: domain.domain })}
-                      className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors">
-                      Publish to RT
-                    </button>
-                    <button onClick={() => setLinkingDl(linkingDl?.id === dl.id ? null : dl)}
-                      className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors">
-                      Link RT
-                    </button>
-                  </>
-                )}
-                <button onClick={() => handleRemoveLander(dl)}
-                  className="px-2 py-0.5 text-gray-400 hover:text-red-500 transition-colors">✕</button>
-              </div>
-              {linkingDl?.id === dl.id && (
-                <LinkRTPanel
-                  domainId={domain.id}
-                  dl={dl}
-                  onSave={() => { setLinkingDl(null); loadLanders(); onRefresh(); }}
-                  onCancel={() => setLinkingDl(null)}
-                />
-              )}
+                {dl.redtrack_lander_id
+                  ? <a href={`https://app.redtrack.io/landers/edit/${dl.redtrack_lander_id}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-green-600 font-medium hover:underline">✓ RT</a>
+                  : <span className="ml-2 text-amber-500">not in RT</span>
+                }
+              </span>
+              <button onClick={() => handleDeploy(dl)} disabled={!!actionState[dl.id]}
+                className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors">
+                {actionState[dl.id] === 'deploying' ? 'Deploying...' : 'Deploy'}
+              </button>
+              <button onClick={() => handleRemoveLander(dl)}
+                className="px-2 py-0.5 text-gray-400 hover:text-red-500 transition-colors">✕</button>
             </div>
           ))}
 
           {showAddLander ? (
             <AddLanderForm
               domainId={domain.id}
-              localLanders={localLanders}
-              onSave={() => { setShowAddLander(false); loadLanders(); }}
+              onSave={() => { setShowAddLander(false); loadLanders(); onRefresh(); }}
               onCancel={() => setShowAddLander(false)}
             />
           ) : (
@@ -471,14 +432,6 @@ function DomainRow({ domain, localLanders, onRotate, onDelete, onRefresh }) {
         </div>
       )}
 
-      {publishingDl && (
-        <PublishToRTModal
-          domainId={domain.id}
-          dl={publishingDl}
-          onSuccess={() => { setPublishingDl(null); loadLanders(); onRefresh(); }}
-          onClose={() => setPublishingDl(null)}
-        />
-      )}
     </div>
   );
 }
@@ -664,19 +617,14 @@ export default function FunnelDetailPage() {
   const [funnel, setFunnel]             = useState(null);
   const [stream, setStream]             = useState(null);
   const [streamError, setStreamError]   = useState('');
-  const [localLanders, setLocalLanders] = useState([]);
   const [loading, setLoading]           = useState(true);
   const [showAddDomain, setShowAddDomain] = useState(false);
   const [rotating, setRotating]         = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [f, ll] = await Promise.all([
-        api.get(`/funnels/${id}`),
-        api.get('/landers').catch(() => []),
-      ]);
+      const f = await api.get(`/funnels/${id}`);
       setFunnel(f);
-      setLocalLanders(ll);
       if (f.redtrack_stream_id) {
         setStreamError('');
         try {
@@ -843,7 +791,6 @@ export default function FunnelDetailPage() {
               <DomainRow
                 key={d.id}
                 domain={d}
-                localLanders={localLanders}
                 onRotate={handleRotateNow}
                 onDelete={deleteDomain}
                 onRefresh={load}
