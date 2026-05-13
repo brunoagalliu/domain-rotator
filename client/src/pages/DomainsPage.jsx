@@ -199,7 +199,10 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
   const [newSubdir,    setNewSubdir]    = useState('');
   const [addErr,       setAddErr]       = useState('');
   const [deploying,    setDeploying]    = useState(null);
-  const [publishingDl, setPublishingDl] = useState(null); // dl object for modal
+  const [publishingDl, setPublishingDl] = useState(null);
+  const [linkingId,    setLinkingId]    = useState(null); // dl.id being linked
+  const [linkInput,    setLinkInput]    = useState('');
+  const [linkSaving,   setLinkSaving]   = useState(false);
 
   const load = useCallback(async () => {
     const rows = await api.get(`/domains/${domain.id}/landers`);
@@ -250,6 +253,22 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
     setPublishingDl({ ...dl, domain: domain.domain });
   }
 
+  async function handleLinkRT(dlId) {
+    if (!linkInput.trim()) return;
+    setLinkSaving(true);
+    try {
+      await api.patch(`/domains/${domain.id}/landers/${dlId}`, { redtrack_lander_id: linkInput.trim() });
+      setLinkingId(null);
+      setLinkInput('');
+      load();
+      onChanged();
+    } catch (err) {
+      alert(`Link failed: ${err.message}`);
+    } finally {
+      setLinkSaving(false);
+    }
+  }
+
   if (landers === null) {
     return (
       <tr>
@@ -280,41 +299,91 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
           {landers.length > 0 && (
             <div className="space-y-1 mb-2">
               {landers.map(dl => (
-                <div key={dl.id} className="flex items-center gap-3 bg-white rounded border border-gray-200 px-3 py-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-gray-800">
-                        {dl.redtrack_lander_title || dl.lander_name}
-                      </span>
-                      {dl.subdirectory && (
-                        <span className="text-xs font-mono text-gray-400">/{dl.subdirectory}</span>
-                      )}
+                <div key={dl.id} className="bg-white rounded border border-gray-200 px-3 py-2">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-800">
+                          {dl.redtrack_lander_title || dl.lander_name}
+                        </span>
+                        {dl.subdirectory && (
+                          <span className="text-xs font-mono text-gray-400">/{dl.subdirectory}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {dl.redtrack_lander_id ? (
+                          <>
+                            <a
+                              href={`https://app.redtrack.io/landers/edit/${dl.redtrack_lander_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs font-mono text-green-600 hover:underline"
+                            >
+                              RT #{dl.redtrack_lander_id.slice(0, 10)}…
+                            </a>
+                            <button
+                              onClick={() => { setLinkingId(dl.id); setLinkInput(dl.redtrack_lander_id); }}
+                              className="text-xs text-gray-400 hover:text-gray-600 underline"
+                            >
+                              re-link
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => { setLinkingId(dl.id); setLinkInput(''); }}
+                            className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded hover:bg-gray-200 transition-colors"
+                          >
+                            + Link RT
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    {dl.redtrack_lander_id && (
-                      <span className="text-xs font-mono text-green-600">RT #{dl.redtrack_lander_id}</span>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleDeploy(dl)}
+                        disabled={deploying === dl.id}
+                        className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors"
+                      >
+                        {deploying === dl.id ? 'Deploying…' : 'Deploy'}
+                      </button>
+                      <button
+                        onClick={() => handlePublish(dl)}
+                        className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition-colors"
+                      >
+                        Publish to RT
+                      </button>
+                      <button
+                        onClick={() => handleRemove(dl.id)}
+                        className="text-xs px-2 py-0.5 bg-red-50 text-red-500 rounded hover:bg-red-100 transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => handleDeploy(dl)}
-                      disabled={deploying === dl.id}
-                      className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition-colors"
-                    >
-                      {deploying === dl.id ? 'Deploying…' : 'Deploy'}
-                    </button>
-                    <button
-                      onClick={() => handlePublish(dl)}
-                      className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition-colors"
-                    >
-                      Publish to RT
-                    </button>
-                    <button
-                      onClick={() => handleRemove(dl.id)}
-                      className="text-xs px-2 py-0.5 bg-red-50 text-red-500 rounded hover:bg-red-100 transition-colors"
-                    >
-                      Remove
-                    </button>
-                  </div>
+                  {linkingId === dl.id && (
+                    <div className="mt-2 flex items-center gap-1.5 pt-2 border-t border-gray-100">
+                      <input
+                        value={linkInput}
+                        onChange={e => setLinkInput(e.target.value)}
+                        placeholder="Paste RT lander ID…"
+                        autoFocus
+                        className="text-xs border border-gray-300 rounded px-2 py-1 w-56 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                      <button
+                        onClick={() => handleLinkRT(dl.id)}
+                        disabled={linkSaving || !linkInput.trim()}
+                        className="text-xs px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                      >
+                        {linkSaving ? '…' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => { setLinkingId(null); setLinkInput(''); }}
+                        className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
