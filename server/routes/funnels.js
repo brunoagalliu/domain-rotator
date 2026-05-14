@@ -250,6 +250,43 @@ router.post('/:id/sync-from-rt', async (req, res) => {
   }
 });
 
+// Add a lander to the RT stream at weight 1 (standby)
+router.post('/:id/stream-lander', async (req, res) => {
+  const axios = require('axios');
+  const { rt_lander_id } = req.body;
+  if (!rt_lander_id) return res.status(400).json({ message: 'rt_lander_id is required.' });
+
+  try {
+    const { rows: [funnel] } = await pool.query(`SELECT * FROM funnels WHERE id = $1`, [req.params.id]);
+    if (!funnel?.redtrack_stream_id) return res.status(404).json({ message: 'Funnel or stream not found.' });
+
+    const apiKey = process.env.REDTRACK_API_KEY;
+    if (!apiKey) return res.status(500).json({ message: 'REDTRACK_API_KEY not configured.' });
+
+    const { data: list } = await axios.get('https://api.redtrack.io/streams', {
+      params: { api_key: apiKey, template: true, per: 500 },
+      timeout: 10000,
+    });
+    const items = (list.items || list || []).map(s => ({ ...s, id: s.id || s._id }));
+    const stream = items.find(s => String(s.id) === String(funnel.redtrack_stream_id));
+    if (!stream) return res.status(404).json({ message: 'RT stream not found.' });
+
+    const already = (stream.landings || []).find(l => String(l.id) === String(rt_lander_id));
+    if (already) return res.json({ ok: true, already_present: true });
+
+    const updatedLandings = [...(stream.landings || []), { id: rt_lander_id, weight: 1 }];
+    await axios.put(
+      `https://api.redtrack.io/streams/${funnel.redtrack_stream_id}`,
+      { ...stream, landings: updatedLandings, direct: false },
+      { params: { api_key: apiKey }, timeout: 10000 }
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.response?.data?.error || err.message });
+  }
+});
+
 // Remove a lander from the RT stream entirely
 router.delete('/:id/stream-lander/:rtLanderId', async (req, res) => {
   const axios = require('axios');

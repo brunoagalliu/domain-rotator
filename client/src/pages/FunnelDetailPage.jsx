@@ -15,7 +15,7 @@ const ROLE_COLORS = {
 };
 
 // ── Add Lander picker (select from existing domains) ─────────────────────────
-function AddLanderPicker({ funnelId, funnelDomains, onSave, onCancel }) {
+function AddLanderPicker({ funnelId, streamId, funnelDomains, onSave, onCancel }) {
   const [allDomains,     setAllDomains]     = useState([]);
   const [selected,       setSelected]       = useState(null);
   const [query,          setQuery]          = useState('');
@@ -68,6 +68,11 @@ function AddLanderPicker({ funnelId, funnelDomains, onSave, onCancel }) {
       const body = { funnel_id: funnelId };
       if (selectedLander?.redtrack_lander_id) body.redtrack_lander_id = selectedLander.redtrack_lander_id;
       await api.patch(`/domains/${selected.id}`, body);
+      if (streamId && selectedLander?.redtrack_lander_id) {
+        await api.post(`/funnels/${funnelId}/stream-lander`, {
+          rt_lander_id: selectedLander.redtrack_lander_id,
+        }).catch(err => setError(`Added to pool — RT stream update failed: ${err.message}`));
+      }
       onSave();
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
@@ -803,6 +808,7 @@ export default function FunnelDetailPage() {
         {showAddDomain && (
           <AddLanderPicker
             funnelId={Number(id)}
+            streamId={funnel.redtrack_stream_id}
             funnelDomains={funnel.domains}
             onSave={() => { setShowAddDomain(false); load(); }}
             onCancel={() => setShowAddDomain(false)}
