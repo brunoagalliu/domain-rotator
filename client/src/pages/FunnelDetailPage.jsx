@@ -354,6 +354,9 @@ function DomainRow({ domain, onRotate, onDelete, onRefresh }) {
             <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_COLORS[domain.status]}`}>
               {domain.status}
             </span>
+            {domain.is_suspicious && (
+              <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-amber-100 text-amber-700">⚠ suspicious</span>
+            )}
           </div>
           {primaryLander ? (
             <div className="flex items-center gap-2 mt-0.5">

@@ -77,12 +77,40 @@ async function cleanupBannedFromStreams() {
   }
 }
 
+async function syncSuspiciousFlags() {
+  const apiKey = process.env.DETECTION_API_KEY;
+  if (!apiKey) return;
+
+  const { data: extDomains } = await axios.get(`${DETECTION_URL}/api/domains`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    timeout: 15000,
+  });
+
+  const suspicious = (Array.isArray(extDomains) ? extDomains : [])
+    .filter(d => d.is_suspicious)
+    .map(d => d.domain);
+
+  await pool.query(`UPDATE domains SET is_suspicious = false WHERE is_suspicious = true`);
+
+  if (suspicious.length > 0) {
+    await pool.query(
+      `UPDATE domains SET is_suspicious = true WHERE domain = ANY($1)`,
+      [suspicious]
+    );
+    console.log(`[monitor] ${suspicious.length} suspicious domain(s): ${suspicious.join(', ')}`);
+  }
+}
+
 async function pollOnce() {
   const apiKey = process.env.DETECTION_API_KEY;
   if (!apiKey) return;
 
   await cleanupBannedFromStreams().catch(err =>
     console.error('[monitor] Cleanup error:', err.message)
+  );
+
+  await syncSuspiciousFlags().catch(err =>
+    console.error('[monitor] syncSuspiciousFlags error:', err.message)
   );
 
   const { data: scans } = await axios.get(`${DETECTION_URL}/api/scans`, {
