@@ -3,6 +3,9 @@ const { Pool } = require('pg');
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  idleTimeoutMillis:    10000,  // recycle idle connections before Railway kills them
+  connectionTimeoutMillis: 10000,
+  max: 10,
 });
 
 async function init() {
