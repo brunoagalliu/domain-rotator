@@ -3,12 +3,13 @@ const { Pool } = require('pg');
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  idleTimeoutMillis:    10000,  // recycle idle connections before Railway kills them
+  idleTimeoutMillis:       10000,
   connectionTimeoutMillis: 10000,
   max: 10,
 });
 
 async function init() {
+  // Create all tables first (safe on both fresh and existing DBs)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS landers (
       id         SERIAL PRIMARY KEY,
@@ -17,20 +18,13 @@ async function init() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
-    ALTER TABLE landers        ADD COLUMN IF NOT EXISTS category       TEXT;
-    ALTER TABLE funnels        ADD COLUMN IF NOT EXISTS category       TEXT;
-    ALTER TABLE funnels        ADD COLUMN IF NOT EXISTS auto_rotate    BOOLEAN NOT NULL DEFAULT true;
-    ALTER TABLE domains        ADD COLUMN IF NOT EXISTS category       TEXT;
-    ALTER TABLE domains        ADD COLUMN IF NOT EXISTS flagged_at     TIMESTAMPTZ;
-    ALTER TABLE domains        ADD COLUMN IF NOT EXISTS threat_types   TEXT;
-    ALTER TABLE domains        ADD COLUMN IF NOT EXISTS is_suspicious  BOOLEAN NOT NULL DEFAULT false;
-    ALTER TABLE domain_landers ADD COLUMN IF NOT EXISTS redtrack_lander_title TEXT;
-
     CREATE TABLE IF NOT EXISTS funnels (
-      id                   SERIAL PRIMARY KEY,
-      name                 TEXT NOT NULL,
-      redtrack_campaign_id TEXT UNIQUE,
-      created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id                 SERIAL PRIMARY KEY,
+      name               TEXT NOT NULL,
+      redtrack_stream_id TEXT UNIQUE,
+      category           TEXT,
+      auto_rotate        BOOLEAN NOT NULL DEFAULT true,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS domains (
@@ -45,18 +39,21 @@ async function init() {
       priority           INTEGER NOT NULL DEFAULT 0,
       added_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       banned_at          TIMESTAMPTZ,
-      notes              TEXT
+      notes              TEXT,
+      category           TEXT,
+      flagged_at         TIMESTAMPTZ,
+      threat_types       TEXT,
+      is_suspicious      BOOLEAN NOT NULL DEFAULT false
     );
 
-    CREATE INDEX IF NOT EXISTS idx_domains_status ON domains(status);
-
     CREATE TABLE IF NOT EXISTS domain_landers (
-      id                 SERIAL PRIMARY KEY,
-      domain_id          INTEGER NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
-      lander_id          INTEGER NOT NULL REFERENCES landers(id) ON DELETE CASCADE,
-      subdirectory       TEXT NOT NULL DEFAULT '',
-      redtrack_lander_id TEXT,
-      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      id                    SERIAL PRIMARY KEY,
+      domain_id             INTEGER NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+      lander_id             INTEGER NOT NULL REFERENCES landers(id) ON DELETE CASCADE,
+      subdirectory          TEXT NOT NULL DEFAULT '',
+      redtrack_lander_id    TEXT,
+      redtrack_lander_title TEXT,
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (domain_id, subdirectory)
     );
 
@@ -73,32 +70,36 @@ async function init() {
       id             SERIAL PRIMARY KEY,
       funnel_id      INTEGER REFERENCES funnels(id) ON DELETE SET NULL,
       from_domain    TEXT,
-      to_domain      TEXT NOT NULL,
+      to_domain      TEXT,
       lander_name    TEXT,
       trigger_source TEXT NOT NULL DEFAULT 'api',
       status         TEXT NOT NULL CHECK (status IN ('success', 'failed')),
       error          TEXT,
       rotated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE INDEX IF NOT EXISTS idx_domains_status ON domains(status);
+    CREATE INDEX IF NOT EXISTS idx_domains_funnel  ON domains(funnel_id);
   `);
 
-  // Migrate existing tables — idempotent
+  // Idempotent migrations for existing installs — errors ignored
   await pool.query(`
-    ALTER TABLE domains ADD COLUMN IF NOT EXISTS funnel_id          INTEGER REFERENCES funnels(id) ON DELETE SET NULL;
-    ALTER TABLE domains ADD COLUMN IF NOT EXISTS role               TEXT NOT NULL DEFAULT 'backup';
-    ALTER TABLE domains ADD COLUMN IF NOT EXISTS redtrack_lander_id TEXT;
-    ALTER TABLE rotation_history ADD COLUMN IF NOT EXISTS funnel_id INTEGER REFERENCES funnels(id) ON DELETE SET NULL;
-    ALTER TABLE rotation_history ALTER COLUMN to_domain DROP NOT NULL;
+    ALTER TABLE landers          ADD COLUMN IF NOT EXISTS category             TEXT;
+    ALTER TABLE funnels          ADD COLUMN IF NOT EXISTS category             TEXT;
+    ALTER TABLE funnels          ADD COLUMN IF NOT EXISTS auto_rotate          BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE domains          ADD COLUMN IF NOT EXISTS category             TEXT;
+    ALTER TABLE domains          ADD COLUMN IF NOT EXISTS flagged_at           TIMESTAMPTZ;
+    ALTER TABLE domains          ADD COLUMN IF NOT EXISTS threat_types         TEXT;
+    ALTER TABLE domains          ADD COLUMN IF NOT EXISTS is_suspicious        BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE domains          ADD COLUMN IF NOT EXISTS funnel_id            INTEGER REFERENCES funnels(id) ON DELETE SET NULL;
+    ALTER TABLE domains          ADD COLUMN IF NOT EXISTS role                 TEXT NOT NULL DEFAULT 'backup';
+    ALTER TABLE domains          ADD COLUMN IF NOT EXISTS redtrack_lander_id   TEXT;
+    ALTER TABLE domain_landers   ADD COLUMN IF NOT EXISTS redtrack_lander_title TEXT;
+    ALTER TABLE rotation_history ADD COLUMN IF NOT EXISTS funnel_id            INTEGER REFERENCES funnels(id) ON DELETE SET NULL;
   `).catch(() => {});
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_domains_funnel ON domains(funnel_id);
-  `).catch(() => {});
-
-  // Rename campaign column to stream (funnel templates are /streams in RedTrack API)
-  await pool.query(`
-    ALTER TABLE funnels RENAME COLUMN redtrack_campaign_id TO redtrack_stream_id;
-  `).catch(() => {});
+  await pool.query(`ALTER TABLE rotation_history ALTER COLUMN to_domain DROP NOT NULL;`).catch(() => {});
+  await pool.query(`ALTER TABLE funnels RENAME COLUMN redtrack_campaign_id TO redtrack_stream_id;`).catch(() => {});
 }
 
 module.exports = { pool, init };
