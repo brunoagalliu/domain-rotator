@@ -64,12 +64,21 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-initDb()
-  .then(() => {
-    startMonitor();
-    app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
-  })
-  .catch((err) => {
-    console.error('DB init failed:', err.message);
-    process.exit(1);
-  });
+async function startWithRetry(maxAttempts = 10, baseDelay = 3000) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await initDb();
+      startMonitor();
+      app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+      return;
+    } catch (err) {
+      const delay = Math.min(baseDelay * attempt, 30000);
+      console.error(`DB init failed (attempt ${attempt}/${maxAttempts}): ${err.message}`);
+      if (attempt === maxAttempts) { process.exit(1); }
+      console.log(`Retrying in ${delay / 1000}s...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+}
+
+startWithRetry();
