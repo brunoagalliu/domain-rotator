@@ -26,7 +26,7 @@ function ThreatBadges({ raw, isSuspicious, detectionMethod }) {
   }
   if (threats.length === 0 && methods.length === 0 && !isSuspicious) return <span className="text-gray-300 text-xs">—</span>;
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-col gap-1">
       {methods.map(m => (
         <span key={m} className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
           {METHOD_LABEL[m] ?? m}

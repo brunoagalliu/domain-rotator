@@ -105,15 +105,17 @@ async function pollOnce() {
     console.log(`[monitor] ${suspicious.length} suspicious domain(s): ${suspicious.join(', ')}`);
   }
 
-  // Group all log entries per domain to capture every method/threat type
+  // Process currently flagged domains
+  const flagged = extDomains.filter(d => d.is_flagged);
+
+  // Group log entries — only for flagged domains
+  const flaggedSet = new Set(flagged.map(d => d.domain));
   const domainLogs = {};
   for (const log of logs) {
+    if (!flaggedSet.has(log.domain)) continue;
     if (!domainLogs[log.domain]) domainLogs[log.domain] = [];
     domainLogs[log.domain].push(log);
   }
-
-  // Process currently flagged domains
-  const flagged = extDomains.filter(d => d.is_flagged);
 
   for (const ext of flagged) {
     const { rows: [domain] } = await pool.query(
