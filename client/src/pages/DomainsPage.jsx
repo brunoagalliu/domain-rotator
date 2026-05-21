@@ -19,14 +19,19 @@ function ThreatBadges({ raw, isSuspicious, detectionMethod }) {
     try { threats = JSON.parse(raw); } catch (e) {}
     if (!Array.isArray(threats)) threats = [];
   }
-  if (threats.length === 0 && !isSuspicious) return <span className="text-gray-300 text-xs">—</span>;
+  let methods = [];
+  if (detectionMethod) {
+    try { methods = JSON.parse(detectionMethod); } catch (e) { methods = [detectionMethod]; }
+    if (!Array.isArray(methods)) methods = [methods];
+  }
+  if (threats.length === 0 && methods.length === 0 && !isSuspicious) return <span className="text-gray-300 text-xs">—</span>;
   return (
     <div className="flex flex-wrap gap-1">
-      {detectionMethod && (
-        <span className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
-          {METHOD_LABEL[detectionMethod] ?? detectionMethod}
+      {methods.map(m => (
+        <span key={m} className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
+          {METHOD_LABEL[m] ?? m}
         </span>
-      )}
+      ))}
       {isSuspicious && (
         <span className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
           suspicious

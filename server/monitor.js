@@ -105,13 +105,11 @@ async function pollOnce() {
     console.log(`[monitor] ${suspicious.length} suspicious domain(s): ${suspicious.join(', ')}`);
   }
 
-  // Build most-recent log entry per domain for threat details
-  const latestLog = {};
+  // Group all log entries per domain to capture every method/threat type
+  const domainLogs = {};
   for (const log of logs) {
-    const existing = latestLog[log.domain];
-    if (!existing || new Date(log.detected_at) > new Date(existing.detected_at)) {
-      latestLog[log.domain] = log;
-    }
+    if (!domainLogs[log.domain]) domainLogs[log.domain] = [];
+    domainLogs[log.domain].push(log);
   }
 
   // Process currently flagged domains
@@ -125,12 +123,16 @@ async function pollOnce() {
 
     if (!domain) continue;
 
-    // Persist threat info from most recent log entry
-    const log = latestLog[ext.domain];
-    if (log) {
+    // Persist combined threat info from all log entries for this domain
+    const allLogs = domainLogs[ext.domain] || [];
+    if (allLogs.length > 0) {
+      const methods     = [...new Set(allLogs.map(l => l.method).filter(Boolean))];
+      const threatTypes = [...new Set(allLogs.map(l => l.threat_type).filter(Boolean))];
+      const latestAt    = allLogs.reduce((max, l) =>
+        !max || new Date(l.detected_at) > new Date(max) ? l.detected_at : max, null);
       await pool.query(
         `UPDATE domains SET flagged_at = $1, threat_types = $2, detection_method = $3 WHERE id = $4`,
-        [new Date(log.detected_at), JSON.stringify([log.threat_type]), log.method, domain.id]
+        [new Date(latestAt), JSON.stringify(threatTypes), JSON.stringify(methods), domain.id]
       );
     }
 
@@ -198,8 +200,8 @@ async function pollOnce() {
     state.lastDetection = {
       domain:     ext.domain,
       at:         new Date(),
-      method:     log?.method,
-      threatType: log?.threat_type,
+      methods:    [...new Set(allLogs.map(l => l.method).filter(Boolean))],
+      threatTypes:[...new Set(allLogs.map(l => l.threat_type).filter(Boolean))],
     };
 
     try {
