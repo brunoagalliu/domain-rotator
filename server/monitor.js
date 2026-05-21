@@ -6,11 +6,12 @@ const DETECTION_URL = process.env.DETECTION_API_URL || 'https://domain.smsapp.co
 const POLL_MS = 60 * 1000;
 
 const state = {
-  running:       false,
-  configured:    false,
-  lastPoll:      null,
-  lastError:     null,
-  lastDetection: null, // { domain, at, threats }
+  running:          false,
+  configured:       false,
+  lastPoll:         null,
+  lastError:        null,
+  lastDetection:    null, // { domain, at, threats }
+  lastScanSummary:  null, // { total, flagged, suspicious, flaggedDomains[] }
 };
 
 // Remove any banned domains that are still present in their RT streams,
@@ -121,9 +122,14 @@ async function pollOnce() {
   state.lastPoll  = new Date();
   state.lastError = null;
 
-  // Filter to unsafe scans only; duplicate-rotation is prevented by the
-  // status='active' check below — banned domains won't match after first rotation
-  const flagged = (Array.isArray(scans) ? scans : []).filter(s => s.is_safe === 0);
+  const allScans = Array.isArray(scans) ? scans : [];
+  const flagged  = allScans.filter(s => s.is_safe === 0);
+
+  state.lastScanSummary = {
+    total:          allScans.length,
+    flagged:        flagged.length,
+    flaggedDomains: flagged.map(s => ({ domain: s.domain, threats: s.threat_types, scan_date: s.scan_date })),
+  };
 
   for (const scan of flagged) {
     const { rows: [domain] } = await pool.query(
@@ -244,6 +250,7 @@ function getState() {
     lastPoll:            state.lastPoll,
     lastError:           state.lastError,
     lastDetection:       state.lastDetection,
+    lastScanSummary:     state.lastScanSummary,
     pollIntervalSeconds: POLL_MS / 1000,
   };
 }
