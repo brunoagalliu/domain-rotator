@@ -43,6 +43,7 @@ async function init() {
       category           TEXT,
       flagged_at         TIMESTAMPTZ,
       threat_types       TEXT,
+      detection_method   TEXT,
       is_suspicious      BOOLEAN NOT NULL DEFAULT false
     );
 
@@ -90,6 +91,7 @@ async function init() {
     ALTER TABLE domains          ADD COLUMN IF NOT EXISTS category             TEXT;
     ALTER TABLE domains          ADD COLUMN IF NOT EXISTS flagged_at           TIMESTAMPTZ;
     ALTER TABLE domains          ADD COLUMN IF NOT EXISTS threat_types         TEXT;
+    ALTER TABLE domains          ADD COLUMN IF NOT EXISTS detection_method     TEXT;
     ALTER TABLE domains          ADD COLUMN IF NOT EXISTS is_suspicious        BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE domains          ADD COLUMN IF NOT EXISTS funnel_id            INTEGER REFERENCES funnels(id) ON DELETE SET NULL;
     ALTER TABLE domains          ADD COLUMN IF NOT EXISTS role                 TEXT NOT NULL DEFAULT 'backup';

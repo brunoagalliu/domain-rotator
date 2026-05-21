@@ -6,12 +6,11 @@ const DETECTION_URL = process.env.DETECTION_API_URL || 'https://domain.smsapp.co
 const POLL_MS = 60 * 1000;
 
 const state = {
-  running:          false,
-  configured:       false,
-  lastPoll:         null,
-  lastError:        null,
-  lastDetection:    null, // { domain, at, threats }
-  lastScanSummary:  null, // { total, flagged, suspicious, flaggedDomains[] }
+  running:       false,
+  configured:    false,
+  lastPoll:      null,
+  lastError:     null,
+  lastDetection: null, // { domain, at, method, threatType }
 };
 
 // Remove any banned domains that are still present in their RT streams,
@@ -21,7 +20,7 @@ async function cleanupBannedFromStreams() {
   if (!rtApiKey) return;
 
   const { rows: banned } = await pool.query(`
-    SELECT d.id, d.domain, d.redtrack_lander_id, f.redtrack_stream_id
+    SELECT d.id, d.domain, d.redtrack_lander_id, f.redtrack_stream_id, d.funnel_id
     FROM domains d
     JOIN funnels f ON f.id = d.funnel_id
     WHERE d.status = 'banned'
@@ -30,13 +29,11 @@ async function cleanupBannedFromStreams() {
   `);
   if (banned.length === 0) return;
 
-  // Fetch all streams once, then iterate
   const { data: list } = await axios.get('https://api.redtrack.io/streams', {
     params: { api_key: rtApiKey, template: true, per: 500 }, timeout: 10000,
   });
   const streams = (list.items || list || []).map(s => ({ ...s, id: String(s.id || s._id) }));
 
-  // Group banned domains by stream to minimise PUT calls
   const byStream = {};
   for (const d of banned) {
     const key = String(d.redtrack_stream_id);
@@ -52,7 +49,7 @@ async function cleanupBannedFromStreams() {
     const updatedLandings = (stream.landings || []).filter(
       l => !landerIds.includes(String(l.id))
     );
-    if (updatedLandings.length === before) continue; // nothing to remove
+    if (updatedLandings.length === before) continue;
 
     const patch = { ...stream, landings: updatedLandings };
     if (updatedLandings.length === 0) patch.direct = true;
@@ -62,10 +59,8 @@ async function cleanupBannedFromStreams() {
       { params: { api_key: rtApiKey }, timeout: 10000 }
     );
 
-    // Log each removed domain to history
-    const removed = byStream[streamId];
     const funnelRow = banned.find(d => String(d.redtrack_stream_id) === streamId);
-    for (const landerId of removed) {
+    for (const landerId of landerIds) {
       const d = banned.find(b => String(b.redtrack_lander_id) === landerId && String(b.redtrack_stream_id) === streamId);
       if (!d) continue;
       await pool.query(
@@ -78,30 +73,6 @@ async function cleanupBannedFromStreams() {
   }
 }
 
-async function syncSuspiciousFlags() {
-  const apiKey = process.env.DETECTION_API_KEY;
-  if (!apiKey) return;
-
-  const { data: extDomains } = await axios.get(`${DETECTION_URL}/api/domains`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    timeout: 15000,
-  });
-
-  const suspicious = (Array.isArray(extDomains) ? extDomains : [])
-    .filter(d => d.is_suspicious)
-    .map(d => d.domain);
-
-  await pool.query(`UPDATE domains SET is_suspicious = false WHERE is_suspicious = true`);
-
-  if (suspicious.length > 0) {
-    await pool.query(
-      `UPDATE domains SET is_suspicious = true WHERE domain = ANY($1)`,
-      [suspicious]
-    );
-    console.log(`[monitor] ${suspicious.length} suspicious domain(s): ${suspicious.join(', ')}`);
-  }
-}
-
 async function pollOnce() {
   const apiKey = process.env.DETECTION_API_KEY;
   if (!apiKey) return;
@@ -110,45 +81,63 @@ async function pollOnce() {
     console.error('[monitor] Cleanup error:', err.message)
   );
 
-  await syncSuspiciousFlags().catch(err =>
-    console.error('[monitor] syncSuspiciousFlags error:', err.message)
-  );
-
-  const { data: scans } = await axios.get(`${DETECTION_URL}/api/scans`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    timeout: 15000,
-  });
+  // Fetch current domain states and event log in parallel
+  const [domainsRes, logsRes] = await Promise.all([
+    axios.get(`${DETECTION_URL}/api/domains`, {
+      headers: { Authorization: `Bearer ${apiKey}` }, timeout: 15000,
+    }),
+    axios.get(`${DETECTION_URL}/api/logs?limit=500`, {
+      headers: { Authorization: `Bearer ${apiKey}` }, timeout: 15000,
+    }),
+  ]);
 
   state.lastPoll  = new Date();
   state.lastError = null;
 
-  const allScans = Array.isArray(scans) ? scans : [];
-  const flagged  = allScans.filter(s => s.is_safe === 0);
+  const extDomains = Array.isArray(domainsRes.data) ? domainsRes.data : [];
+  const logs       = Array.isArray(logsRes.data)    ? logsRes.data    : [];
 
-  state.lastScanSummary = {
-    total:          allScans.length,
-    flagged:        flagged.length,
-    flaggedDomains: flagged.map(s => ({ domain: s.domain, threats: s.threat_types, scan_date: s.scan_date })),
-  };
+  // Sync is_suspicious from /api/domains
+  const suspicious = extDomains.filter(d => d.is_suspicious).map(d => d.domain);
+  await pool.query(`UPDATE domains SET is_suspicious = false WHERE is_suspicious = true`);
+  if (suspicious.length > 0) {
+    await pool.query(`UPDATE domains SET is_suspicious = true WHERE domain = ANY($1)`, [suspicious]);
+    console.log(`[monitor] ${suspicious.length} suspicious domain(s): ${suspicious.join(', ')}`);
+  }
 
-  for (const scan of flagged) {
+  // Build most-recent log entry per domain for threat details
+  const latestLog = {};
+  for (const log of logs) {
+    const existing = latestLog[log.domain];
+    if (!existing || new Date(log.detected_at) > new Date(existing.detected_at)) {
+      latestLog[log.domain] = log;
+    }
+  }
+
+  // Process currently flagged domains
+  const flagged = extDomains.filter(d => d.is_flagged);
+
+  for (const ext of flagged) {
     const { rows: [domain] } = await pool.query(
       `SELECT id, status, funnel_id, redtrack_lander_id FROM domains WHERE domain = $1`,
-      [scan.domain]
+      [ext.domain]
     );
 
     if (!domain) continue;
 
-    // Always persist flagged info so it shows in the UI
-    await pool.query(
-      `UPDATE domains SET flagged_at = $1, threat_types = $2 WHERE id = $3`,
-      [new Date(scan.scan_date), JSON.stringify(scan.threat_types || []), domain.id]
-    );
+    // Persist threat info from most recent log entry
+    const log = latestLog[ext.domain];
+    if (log) {
+      await pool.query(
+        `UPDATE domains SET flagged_at = $1, threat_types = $2, detection_method = $3 WHERE id = $4`,
+        [new Date(log.detected_at), JSON.stringify([log.threat_type]), log.method, domain.id]
+      );
+    }
 
-    // Auto-ban flagged standby domains; also clean up already-banned domains still in stream
+    // Auto-ban flagged standby domains; clean up banned domains still in stream
     if (domain.status === 'standby' || domain.status === 'banned') {
       if (domain.status === 'standby') {
-        console.log(`[monitor] Flagged standby domain ${scan.domain} — banning and removing from stream`);
+        console.log(`[monitor] Flagged standby domain ${ext.domain} — banning`);
         await pool.query(
           `UPDATE domains SET status = 'banned', banned_at = NOW() WHERE id = $1`,
           [domain.id]
@@ -156,7 +145,7 @@ async function pollOnce() {
         await pool.query(
           `INSERT INTO rotation_history (funnel_id, from_domain, to_domain, trigger_source, status)
            VALUES ($1, $2, NULL, 'auto_ban', 'success')`,
-          [domain.funnel_id || null, scan.domain]
+          [domain.funnel_id || null, ext.domain]
         ).catch(() => {});
       }
       if (domain.funnel_id && domain.redtrack_lander_id) {
@@ -165,9 +154,9 @@ async function pollOnce() {
             `SELECT redtrack_stream_id FROM funnels WHERE id = $1`, [domain.funnel_id]
           );
           if (funnel?.redtrack_stream_id) {
-            const apiKey = process.env.REDTRACK_API_KEY;
+            const rtApiKey = process.env.REDTRACK_API_KEY;
             const { data: list } = await axios.get('https://api.redtrack.io/streams', {
-              params: { api_key: apiKey, template: true, per: 500 }, timeout: 10000,
+              params: { api_key: rtApiKey, template: true, per: 500 }, timeout: 10000,
             });
             const items = (list.items || list || []).map(s => ({ ...s, id: s.id || s._id }));
             const stream = items.find(s => String(s.id) === String(funnel.redtrack_stream_id));
@@ -181,42 +170,43 @@ async function pollOnce() {
                 await axios.put(
                   `https://api.redtrack.io/streams/${funnel.redtrack_stream_id}`,
                   patch,
-                  { params: { api_key: apiKey }, timeout: 10000 }
+                  { params: { api_key: rtApiKey }, timeout: 10000 }
                 );
-                console.log(`[monitor] Removed ${scan.domain} from RT stream`);
+                console.log(`[monitor] Removed ${ext.domain} from RT stream`);
               }
             }
           }
         } catch (err) {
-          console.error(`[monitor] Failed to remove ${scan.domain} from stream:`, err.message);
+          console.error(`[monitor] Failed to remove ${ext.domain} from stream:`, err.message);
         }
       }
       continue;
     }
 
-    // Skip if the funnel has auto-rotation disabled
+    // Skip if auto-rotation disabled on the funnel
     if (domain.funnel_id) {
       const { rows: [funnel] } = await pool.query(
         `SELECT auto_rotate FROM funnels WHERE id = $1`, [domain.funnel_id]
       );
       if (funnel && funnel.auto_rotate === false) {
-        console.log(`[monitor] Skipped rotation for ${scan.domain} — auto-rotate disabled on funnel`);
+        console.log(`[monitor] Skipped rotation for ${ext.domain} — auto-rotate disabled`);
         continue;
       }
     }
 
-    console.log(`[monitor] Flagged active domain ${scan.domain} — triggering rotation`);
+    console.log(`[monitor] Flagged active domain ${ext.domain} — triggering rotation`);
     state.lastDetection = {
-      domain:  scan.domain,
-      at:      new Date(),
-      threats: scan.threat_types,
+      domain:     ext.domain,
+      at:         new Date(),
+      method:     log?.method,
+      threatType: log?.threat_type,
     };
 
     try {
-      const result = await rotate(scan.domain, 'auto_detection');
+      const result = await rotate(ext.domain, 'auto_detection');
       console.log(`[monitor] Rotated ${result.fromDomain} → ${result.toDomain}`);
     } catch (err) {
-      console.error(`[monitor] Rotation failed for ${scan.domain}:`, err.message);
+      console.error(`[monitor] Rotation failed for ${ext.domain}:`, err.message);
     }
   }
 }
@@ -238,7 +228,7 @@ function start() {
       console.error('[monitor] Poll error:', err.message);
     });
 
-  run(); // immediate on startup
+  run();
   setInterval(run, POLL_MS);
   console.log('[monitor] Started — polling every 60s');
 }
@@ -250,7 +240,6 @@ function getState() {
     lastPoll:            state.lastPoll,
     lastError:           state.lastError,
     lastDetection:       state.lastDetection,
-    lastScanSummary:     state.lastScanSummary,
     pollIntervalSeconds: POLL_MS / 1000,
   };
 }

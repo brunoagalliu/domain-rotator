@@ -8,7 +8,12 @@ const STATUS_COLORS = {
   banned:  'bg-red-100 text-red-800',
 };
 
-function ThreatBadges({ raw, isSuspicious }) {
+const METHOD_LABEL = {
+  browser:    'Chrome',
+  lookup_api: 'Lookup API',
+};
+
+function ThreatBadges({ raw, isSuspicious, detectionMethod }) {
   let threats = [];
   if (raw) {
     try { threats = JSON.parse(raw); } catch (e) {}
@@ -17,6 +22,11 @@ function ThreatBadges({ raw, isSuspicious }) {
   if (threats.length === 0 && !isSuspicious) return <span className="text-gray-300 text-xs">—</span>;
   return (
     <div className="flex flex-wrap gap-1">
+      {detectionMethod && (
+        <span className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
+          {METHOD_LABEL[detectionMethod] ?? detectionMethod}
+        </span>
+      )}
       {isSuspicious && (
         <span className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
           suspicious
@@ -600,7 +610,7 @@ export default function DomainsPage() {
                       {d.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3"><ThreatBadges raw={d.threat_types} isSuspicious={d.is_suspicious} /></td>
+                  <td className="px-4 py-3"><ThreatBadges raw={d.threat_types} isSuspicious={d.is_suspicious} detectionMethod={d.detection_method} /></td>
                   <td className="px-4 py-3">
                     <select
                       value={d.category || ''}
