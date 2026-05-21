@@ -13,6 +13,10 @@ const METHOD_LABEL = {
   lookup_api: 'Lookup API',
 };
 
+const THREAT_LABEL = {
+  CHROME_BROWSING: 'Unsafe Site',
+};
+
 function ThreatBadges({ raw, isSuspicious, detectionMethod }) {
   let threats = [];
   if (raw) {
@@ -39,7 +43,7 @@ function ThreatBadges({ raw, isSuspicious, detectionMethod }) {
       )}
       {threats.map(t => (
         <span key={t} className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-          {String(t).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+          {THREAT_LABEL[t] ?? String(t).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
         </span>
       ))}
     </div>
