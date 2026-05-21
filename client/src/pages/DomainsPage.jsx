@@ -8,13 +8,20 @@ const STATUS_COLORS = {
   banned:  'bg-red-100 text-red-800',
 };
 
-function ThreatBadges({ raw }) {
-  if (!raw) return <span className="text-gray-300 text-xs">—</span>;
-  let threats;
-  try { threats = JSON.parse(raw); } catch (e) { return <span className="text-gray-300 text-xs">—</span>; }
-  if (!Array.isArray(threats) || threats.length === 0) return <span className="text-gray-300 text-xs">—</span>;
+function ThreatBadges({ raw, isSuspicious }) {
+  let threats = [];
+  if (raw) {
+    try { threats = JSON.parse(raw); } catch (e) {}
+    if (!Array.isArray(threats)) threats = [];
+  }
+  if (threats.length === 0 && !isSuspicious) return <span className="text-gray-300 text-xs">—</span>;
   return (
     <div className="flex flex-wrap gap-1">
+      {isSuspicious && (
+        <span className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
+          suspicious
+        </span>
+      )}
       {threats.map(t => (
         <span key={t} className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
           {String(t).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
@@ -526,9 +533,6 @@ export default function DomainsPage() {
             <span className="text-green-600 font-medium">{counts.active || 0} active</span>
             <span className="text-yellow-600 font-medium">{counts.standby || 0} standby</span>
             <span className="text-red-600 font-medium">{counts.banned || 0} banned</span>
-            {domains.some(d => d.is_suspicious) && (
-              <span className="text-amber-600 font-medium">⚠ {domains.filter(d => d.is_suspicious).length} suspicious</span>
-            )}
           </div>
         </div>
         <button
@@ -592,18 +596,11 @@ export default function DomainsPage() {
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-800">{d.domain}</td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[d.status]}`}>
-                        {d.status}
-                      </span>
-                      {d.is_suspicious && (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
-                          ⚠ suspicious
-                        </span>
-                      )}
-                    </div>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[d.status]}`}>
+                      {d.status}
+                    </span>
                   </td>
-                  <td className="px-4 py-3"><ThreatBadges raw={d.threat_types} /></td>
+                  <td className="px-4 py-3"><ThreatBadges raw={d.threat_types} isSuspicious={d.is_suspicious} /></td>
                   <td className="px-4 py-3">
                     <select
                       value={d.category || ''}

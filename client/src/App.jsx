@@ -40,19 +40,10 @@ function MonitorBadge() {
       {lastPoll && (
         <p className="text-xs text-gray-400 mt-0.5 pl-4">Last poll {lastPoll}</p>
       )}
-      {status.lastScanSummary && (
-        <p className="text-xs text-gray-400 mt-0.5 pl-4">
-          {status.lastScanSummary.total} scanned · {status.lastScanSummary.flagged} flagged
+      {status.lastDetection && (
+        <p className="text-xs text-orange-500 mt-0.5 pl-4 truncate" title={status.lastDetection.domain}>
+          Flagged: {status.lastDetection.domain}
         </p>
-      )}
-      {status.lastScanSummary?.flaggedDomains?.length > 0 && (
-        <div className="mt-1 pl-4 space-y-0.5">
-          {status.lastScanSummary.flaggedDomains.map(d => (
-            <p key={d.domain} className="text-xs text-orange-500 truncate" title={d.domain}>
-              ⚑ {d.domain}
-            </p>
-          ))}
-        </div>
       )}
       {status.lastError && (
         <p className="text-xs text-red-500 mt-0.5 pl-4 truncate" title={status.lastError}>
