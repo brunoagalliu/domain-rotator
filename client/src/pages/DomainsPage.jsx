@@ -28,7 +28,10 @@ function ThreatBadges({ raw, isSuspicious, detectionMethod }) {
     try { methods = JSON.parse(detectionMethod); } catch (e) { methods = [detectionMethod]; }
     if (!Array.isArray(methods)) methods = [methods];
   }
-  if (threats.length === 0 && methods.length === 0 && !isSuspicious) return <span className="text-gray-300 text-xs">—</span>;
+  const implicitThreats = methods.includes('browser') && !threats.includes('CHROME_BROWSING')
+    ? ['CHROME_BROWSING', ...threats]
+    : threats;
+  if (implicitThreats.length === 0 && methods.length === 0 && !isSuspicious) return <span className="text-gray-300 text-xs">—</span>;
   return (
     <div className="flex flex-col gap-1">
       {methods.map(m => (
@@ -41,7 +44,7 @@ function ThreatBadges({ raw, isSuspicious, detectionMethod }) {
           suspicious
         </span>
       )}
-      {threats.map(t => (
+      {implicitThreats.map(t => (
         <span key={t} className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
           {THREAT_LABEL[t] ?? String(t).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
         </span>
