@@ -298,7 +298,7 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
   if (landers === null) {
     return (
       <tr>
-        <td colSpan={9} className="px-8 py-2 bg-gray-50 text-xs text-gray-400">Loading landers…</td>
+        <td colSpan={10} className="px-8 py-2 bg-gray-50 text-xs text-gray-400">Loading landers…</td>
       </tr>
     );
   }
@@ -306,7 +306,7 @@ function LandersSubRow({ domain, allLanders, onChanged }) {
   return (
     <>
     <tr>
-      <td colSpan={9} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
+      <td colSpan={10} className="px-0 py-0 bg-gray-50 border-b border-gray-200">
         <div className="px-8 py-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Landers</span>
@@ -585,6 +585,7 @@ export default function DomainsPage() {
               <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Threats</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Notes</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Lander</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Priority</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Added</th>
@@ -593,9 +594,9 @@ export default function DomainsPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={9} className="text-center py-10 text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={10} className="text-center py-10 text-gray-400">Loading...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={9} className="text-center py-10 text-gray-400">No domains found</td></tr>
+              <tr><td colSpan={10} className="text-center py-10 text-gray-400">No domains found</td></tr>
             ) : filtered.map(d => (
               <>
                 <tr key={d.id} className="hover:bg-gray-50 transition-colors">
@@ -631,6 +632,9 @@ export default function DomainsPage() {
                       <option value="">— none —</option>
                       {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
+                  </td>
+                  <td className="px-4 py-3 text-gray-400 text-xs max-w-[160px]">
+                    {d.notes ? <span className="truncate block" title={d.notes}>{d.notes}</span> : '—'}
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">{d.lander_name || '—'}</td>
                   <td className="px-4 py-3 text-gray-500">{d.priority}</td>
