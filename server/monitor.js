@@ -3,7 +3,7 @@ const { pool } = require('./db');
 const { rotate } = require('./rotator');
 
 const DETECTION_URL = process.env.DETECTION_API_URL || 'https://domain.smsapp.co';
-const POLL_MS = 60 * 1000;
+const POLL_MS = 10 * 1000;
 
 const state = {
   running:       false,
