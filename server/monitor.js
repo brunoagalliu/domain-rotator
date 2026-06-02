@@ -3,7 +3,7 @@ const { pool } = require('./db');
 const { rotate } = require('./rotator');
 
 const DETECTION_URL = process.env.DETECTION_API_URL || 'https://domain.smsapp.co';
-const POLL_MS = 10 * 1000;
+const POLL_MS = 30 * 1000;
 
 const state = {
   running:       false,
@@ -226,15 +226,19 @@ function start() {
 
   state.running = true;
 
-  const run = () =>
+  let polling = false;
+  const run = () => {
+    if (polling) return;
+    polling = true;
     pollOnce().catch(err => {
       state.lastError = err.message;
       console.error('[monitor] Poll error:', err.message);
-    });
+    }).finally(() => { polling = false; });
+  };
 
   run();
   setInterval(run, POLL_MS);
-  console.log('[monitor] Started — polling every 60s');
+  console.log(`[monitor] Started — polling every ${POLL_MS / 1000}s`);
 }
 
 function getState() {
